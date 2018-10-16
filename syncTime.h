@@ -11,6 +11,7 @@ class SyncTime{
    rosTime getTime();
    void updateTime(float correction);
    void hardReset(int seconds, int nSeconds);
+   float difference(rosTime first, rosTime later);
    
    private:
    void resetOffsetCounter();

@@ -35,6 +35,11 @@ void SyncTime::resetOffsetCounter(){
     //buffered_pc.printf("resetting counter %dus\r\n", sinceRefTimer.read_high_resolution_us());
     
 }
+float SyncTime::difference(rosTime first, rosTime later){
+    int secs = later.seconds - first.seconds;
+    int nSecs = later.nSeconds - first.nSeconds;
+    return (float)secs + (float)nSecs/billion;
+}
 
 void SyncTime::hardReset(int seconds, int nSeconds){
         refTime.seconds = seconds;

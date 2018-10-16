@@ -372,7 +372,7 @@ void initMPU6050()
   writeByte(MPU6050_ADDRESS, CONFIG, 0x00);  
  
  // Set sample rate = gyroscope output rate/(1 + SMPLRT_DIV)
-  writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x00);  // Use a 200 Hz rate; the same rate set in CONFIG above
+  writeByte(MPU6050_ADDRESS, SMPLRT_DIV, 0x07);  // Use a 200 Hz rate; the same rate set in CONFIG above
  
  // Set gyroscope full scale range
  // Range selects FS_SEL and AFS_SEL are 0 - 3, so 2-bit values are left-shifted into positions 4:3

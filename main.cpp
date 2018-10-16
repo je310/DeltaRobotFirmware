@@ -41,6 +41,8 @@ SyncTime timeTracker(0,0);
 float batteryV = -1;
 UDPSocket socket;
 int isCon = 0;
+volatile int imuToSend = 0;
+ImuData imuDataBuffer;
 void transmit()
 {
     while(isCon != 0) {
@@ -48,25 +50,29 @@ void transmit()
     }
     string out_buffer = "very important data";
     SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
-    fromRobot msg;
-    msg.motor1.busVoltage = 69;
-    buffered_pc.printf("starting send loop");
+    // fromRobot msg;
+    // msg.motor1.busVoltage = 69;
+    // buffered_pc.printf("starting send loop");
     while (true) {
-        msg.motor1.busVoltage += 1;
+      //  msg.motor1.busVoltage += 1;
         //int ret = socket.sendto(transmit, &msg, sizeof(msg));
         //printf("sendto return: %d\n", ret);
+        if(imuToSend == 1){
+            imuToSend = 0;
+            int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
+        }
 
-        Thread::wait(100);
+        Thread::yield();
     }
 }
-fromRobot pingMsg;
+PingIn pingMsg;
 void receive()
 {
     eth.connect();
 
     //socket.open(&eth);
     
-    socket.set_blocking(false);
+    //socket.set_blocking(false);
     
 
  
@@ -95,33 +101,70 @@ void receive()
     while (true) {
         //printf("\nWait for packet...\n");
         int n = socket.recvfrom(&receive, buffer, sizeof(buffer));
-        if(n != NSAPI_ERROR_WOULD_BLOCK){
+        if(n > 0 ){
+            //buffered_pc.printf("Ho\n\r");
         //debugTimer.start();
-        toRobot inmsg;
-        memcpy(&inmsg, buffer, n);
-        if(inmsg.isPing ==1) {
-            now = timeTracker.getTime();
-            if(now.seconds < 10000){
-                buffered_pc.printf("Hard resetting time to  %ds and %dns \n\r",inmsg.time.seconds,inmsg.time.nSeconds);
-                timeTracker.hardReset(inmsg.time.seconds,inmsg.time.nSeconds);
-            }
+                int32_t typeInt = (int32_t)buffer[0];
+        switch(typeInt){
+        case angleSpaceCmd:
 
-            pingMsg.isPing = 1;
-            pingMsg.pingTime.seconds = inmsg.time.seconds;
-            pingMsg.pingTime.nSeconds = inmsg.time.nSeconds;
-            pingMsg.time.seconds = now.seconds;
-            pingMsg.time.nSeconds = now.nSeconds;
-            int ret = socket.sendto(transmit, &pingMsg, sizeof(pingMsg));
-            //debugTimer.stop();
+            break;
+
+        case cartSpaceCmd:
+
+            break;
+
+        case pingOut:{
+                PingOut inmsg;
+                memcpy(&inmsg, buffer, n);
+
+                now = timeTracker.getTime();
+                if(now.seconds < 10000){
+                    buffered_pc.printf("Hard resetting time to  %ds and %dns \n\r",inmsg.time.seconds,inmsg.time.nSeconds);
+                    timeTracker.hardReset(inmsg.time.seconds,inmsg.time.nSeconds);
+                }
+
+                pingMsg.type = pingIn;
+                pingMsg.sentTime.seconds = inmsg.time.seconds;
+                pingMsg.sentTime.nSeconds = inmsg.time.nSeconds;
+                pingMsg.responseTime.seconds = now.seconds;
+                pingMsg.responseTime.nSeconds = now.nSeconds;
+                int ret = socket.sendto(transmit, &pingMsg, sizeof(pingMsg));
+                //debugTimer.stop();
+                
+                //buffered_pc.printf("sectionTime %d \r\n", debugTimer.read_high_resolution_us());
+                
+                //buffered_pc.printf("current time is %ds and %dns \r\n", now.seconds, now.nSeconds);
             
-            //buffered_pc.printf("sectionTime %d \r\n", debugTimer.read_high_resolution_us());
-            
-            //buffered_pc.printf("current time is %ds and %dns \r\n", now.seconds, now.nSeconds);
-        }
-            if(inmsg.timeOffset !=0.0f){
-                //buffered_pc.printf("Applying offset %fs \n\r",inmsg.timeOffset); 
-                timeTracker.updateTime(inmsg.timeOffset);            
+                if(inmsg.timeOffset !=0.0f){
+                    //buffered_pc.printf("Applying offset %fs \n\r",inmsg.timeOffset); 
+                    timeTracker.updateTime(inmsg.timeOffset);            
+                }
             }
+            break;
+
+        case locationOut:
+
+            break;
+
+        case pingIn:
+        
+            buffered_pc.printf("This is an outgoing type !!\n\r");
+        
+            break;
+
+        case locationIn:
+                buffered_pc.printf("This is an outgoing type !!\n\r");
+            break;
+
+        case userIn:
+                buffered_pc.printf("This is an outgoing type !!\n\r");
+            break;
+
+        default: ;
+
+        }
+        
         //buffer[n] = '\0';
         //buffered_pc.printf("Count:%i, Motor1Vel:%f, Motor1Tor: %f \r\n",inmsg.count, inmsg.motor1.velocity,inmsg.motor1.torque);
         }
@@ -235,12 +278,17 @@ void runOdrive()
     }
 
 }
-rosTime timeMes;
+
 volatile int newData = 0;
+rosTime timeMes;
+float accelDeltaT =1;
 void accelInterrupt(){
 
             newData = 1;
-
+            timeMes = timeTracker.getTime();
+            static rosTime prevTime;
+            accelDeltaT = timeTracker.difference(prevTime,timeMes);
+            prevTime = timeMes;
 
 }
 
@@ -267,25 +315,31 @@ void accelThread()
         if(newData){
             newData = 0;
             dataCount ++;
+            ImuData dataOut; 
+            
                         static rosTime oldTime{0,0};
             mpu.readAccelData(accelCount);  // Read the x/y/z adc values
             mpu.getAres();
 
             // Now we'll calculate the accleration value into actual g's
-            ax = (float)accelCount[0]*aRes - accelBias[0];  // get actual g value, this depends on scale being set
-            ay = (float)accelCount[1]*aRes - accelBias[1];
-            az = (float)accelCount[2]*aRes - accelBias[2];
+            imuDataBuffer.accel.x  = (float)accelCount[0]*aRes;  // get actual g value, this depends on scale being set
+            imuDataBuffer.accel.y = (float)accelCount[1]*aRes;
+            imuDataBuffer.accel.z = (float)accelCount[2]*aRes;
 
             mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
             mpu.getGres();
 
             // Calculate the gyro value into actual degrees per second
-            gx = (float)gyroCount[0]*gRes; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
-            gy = (float)gyroCount[1]*gRes; // - gyroBias[1];
-            gz = (float)gyroCount[2]*gRes; // - gyroBias[2];
-            timeMes = timeTracker.getTime();
-            if(dataCount % 20 ==0){
-                buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %f\ts %f\tns \r\n",ax,ay,az,gx,gy,gz,timeMes.seconds,timeMes.nSeconds);
+            imuDataBuffer.gyro.x = (float)gyroCount[0]*gRes; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+            imuDataBuffer.gyro.y = (float)gyroCount[1]*gRes; // - gyroBias[1];
+            imuDataBuffer.gyro.z = (float)gyroCount[2]*gRes; // - gyroBias[2];
+            imuDataBuffer.type = imuData;
+            imuDataBuffer.time.seconds = timeMes.seconds;
+            imuDataBuffer.time.nSeconds = timeMes.nSeconds;
+            imuToSend = 1;
+            
+            if(dataCount % 2000 ==0){
+               // buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fhz\r\n",ax,ay,az,gx,gy,gz,timeMes.seconds,timeMes.nSeconds, 1.0/accelDeltaT);
             }
         }
         Thread::yield();
@@ -371,8 +425,10 @@ int main()
     //buffered_pc.printf("Controller IP Address is %s\r\n", eth.get_ip_address());
     Thread::wait(5000);
 
-    //transmitter.start(transmit);
+    
     receiver.start(receive);
+    Thread::wait(5000);
+    transmitter.start(transmit);
     //odriveThread.start(runOdrive);
     accel.start(accelThread);
     printBattery.start(batteryThread);
