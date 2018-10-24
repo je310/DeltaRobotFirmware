@@ -30,7 +30,10 @@ calVals calibration;
 MPU6050 mpu;
 I2C i2c(PB_9, PB_8);
 
-
+AngleSpaceCmd ABCSpaceCommand;
+int newABCSpaceCommand = 0;
+CartSpaceCmd XYZSpaceCommand;
+int newXYZSpaceCommand = 0;
 
 using std::string;
 const int BROADCAST_PORT_T = 58080;
@@ -103,22 +106,27 @@ void receive()
         int n = socket.recvfrom(&receive, buffer, sizeof(buffer));
         if(n > 0 ){
             //buffered_pc.printf("Ho\n\r");
-        //debugTimer.start();
+            debugTimer.reset();
+        debugTimer.start();
                 int32_t typeInt = (int32_t)buffer[0];
         switch(typeInt){
         case angleSpaceCmd:
+            memcpy(&ABCSpaceCommand, buffer, n);
+            newABCSpaceCommand = 1;
+
 
             break;
 
         case cartSpaceCmd:
-
+            memcpy(&XYZSpaceCommand, buffer, n);
+            newXYZSpaceCommand = 1;
             break;
 
         case pingOut:{
                 PingOut inmsg;
                 memcpy(&inmsg, buffer, n);
 
-                now = timeTracker.getTime();
+                
                 if(now.seconds < 10000){
                     buffered_pc.printf("Hard resetting time to  %ds and %dns \n\r",inmsg.time.seconds,inmsg.time.nSeconds);
                     timeTracker.hardReset(inmsg.time.seconds,inmsg.time.nSeconds);
@@ -127,17 +135,20 @@ void receive()
                 pingMsg.type = pingIn;
                 pingMsg.sentTime.seconds = inmsg.time.seconds;
                 pingMsg.sentTime.nSeconds = inmsg.time.nSeconds;
+                now = timeTracker.getTime();
                 pingMsg.responseTime.seconds = now.seconds;
                 pingMsg.responseTime.nSeconds = now.nSeconds;
+                debugTimer.stop();
                 int ret = socket.sendto(transmit, &pingMsg, sizeof(pingMsg));
-                //debugTimer.stop();
+                //
                 
                 //buffered_pc.printf("sectionTime %d \r\n", debugTimer.read_high_resolution_us());
                 
                 //buffered_pc.printf("current time is %ds and %dns \r\n", now.seconds, now.nSeconds);
             
                 if(inmsg.timeOffset !=0.0f){
-                    //buffered_pc.printf("Applying offset %fs \n\r",inmsg.timeOffset); 
+                    //buffered_pc.printf("Applying offset %fs \n\r",inmsg.timeOffset);
+
                     timeTracker.updateTime(inmsg.timeOffset);            
                 }
             }
@@ -182,8 +193,8 @@ int getCountPos(BufferedSerial ser, int axis)
 void runOdrive()
 {
     //start servos on endEffector
-    ServoAxis pitch(EXTPIN1,30, -30, 1500, 1200.0/120.0);
-    ServoAxis yaw(EXTPIN2,30, -30, 1500, 1200.0/120.0);
+    ServoAxis pitch(EXTPIN1,35, -35, 1500, 1200.0/120.0, 6.0);
+    ServoAxis yaw(EXTPIN2,50, -50, 1500, -1200.0/120.0, 2.0);  
 //    while(1) {
 //        pitch.setAngle(30);
 //        yaw.setAngle(30);
@@ -214,6 +225,8 @@ void runOdrive()
     kin.goIdle();
     error += kin.setSafeParams();
     while(error) {}
+        pitch.setAngle(0);
+            yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
     while(*A.homeSwitch_||*B.homeSwitch_ || *C.homeSwitch_) {
        Thread::wait(5); 
@@ -225,11 +238,12 @@ void runOdrive()
     kin.activateMotors();
     buffered_pc.printf("homing motors\r\n");
     kin.homeMotors();
-    //int error = kin.goToPos(0,0,-10);
+    error += kin.goToPos(120,0,0);
 
-    kin.goToAngles(pi/4,pi/4,pi/4);
+
+    //kin.goToAngles(pi/4,pi/4,pi/4);
     Thread::wait(500);
-    error += kin.setFastParams();
+    //error += kin.setFastParams();
     while(error) {}
     Thread::wait(1000);
 
@@ -255,21 +269,21 @@ void runOdrive()
             }
         }
         if(count>90) {
-            i += inc;
-            if(up == 1)k+=0.2;
-            else k-=0.2;
-            if(k >= -min) up = 0;
-            if(k <= -max) up = 1;
-            radius =0.6* (span - abs(abs(k) - mid));
-            //buffered_pc.printf("x,y,z = %f %f %f",radius*sin(i),radius*cos(i),k);
-            int error = kin.goToPos(40.0*sin(i),40.0*cos(i),k);
-            pitch.setAngle(25.0*sin(i));
-            yaw.setAngle(25.0*cos(i));
-            //int error = kin.goToPos(0,0,k);
-            if(i > 2*pi) i = 0;
-
-//            buffered_pc.printf("bus voltage %f\r\n",OD1.readBattery());
-//            buffered_pc.printf("k= %f\r\n",k);
+           
+        }
+        if(newABCSpaceCommand == 1){
+            newABCSpaceCommand = 0;
+            kin.goToAngles(ABCSpaceCommand.A,ABCSpaceCommand.B,ABCSpaceCommand.C);
+            pitch.setAngle(ABCSpaceCommand.pitch);
+            yaw.setAngle(ABCSpaceCommand.yaw);
+        }
+        if(newXYZSpaceCommand == 1){
+            newXYZSpaceCommand = 0;
+            buffered_pc.printf("going to %f %f %f\r\n",XYZSpaceCommand.pos.x,XYZSpaceCommand.pos.y,XYZSpaceCommand.pos.z);
+            error += kin.goToPos(XYZSpaceCommand.pos.x,XYZSpaceCommand.pos.y,XYZSpaceCommand.pos.z);
+            if(error) buffered_pc.printf("There was an error moving ");
+            pitch.setAngle(XYZSpaceCommand.pitch);
+            yaw.setAngle(XYZSpaceCommand.yaw);
         }
         Thread::wait(1);
         if(loopCounter % 2000 == 0) {
@@ -336,7 +350,7 @@ void accelThread()
             imuDataBuffer.type = imuData;
             imuDataBuffer.time.seconds = timeMes.seconds;
             imuDataBuffer.time.nSeconds = timeMes.nSeconds;
-            imuToSend = 1;
+            //imuToSend = 1;
             
             if(dataCount % 2000 ==0){
                // buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fhz\r\n",ax,ay,az,gx,gy,gz,timeMes.seconds,timeMes.nSeconds, 1.0/accelDeltaT);
@@ -397,15 +411,15 @@ int main()
     calibration.e = 58.095;
     calibration.f = 60.722;
     calibration.re = 150;
-    calibration.rf = 143.0;
-    calibration.Aoffset = 0.43 - 0.111701;
-    calibration.Boffset = 0.43 - 0.111701;
-    calibration.Coffset = 0.43 - 0.111701;
+    calibration.rf = 137.0;
+    calibration.Aoffset = 0.43 - 0.111701 + 0.0142;
+    calibration.Boffset = 0.43 - 0.111701 + 0.0142;
+    calibration.Coffset = 0.43 - 0.111701 + 0.0142;
     calibration.gearRatio = 89.0/24.0;
     
     i2c.frequency(400000);
     Thread transmitter;
-    Thread receiver;
+    Thread receiver(osPriorityRealtime, 32 * 1024);
     Thread odriveThread;
     Thread accel;
     Thread timeUpdate;
@@ -429,7 +443,7 @@ int main()
     receiver.start(receive);
     Thread::wait(5000);
     transmitter.start(transmit);
-    //odriveThread.start(runOdrive);
+    odriveThread.start(runOdrive);
     accel.start(accelThread);
     printBattery.start(batteryThread);
 

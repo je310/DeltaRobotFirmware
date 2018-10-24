@@ -3,18 +3,20 @@
 
 #include "mbed.h"
 
+#include "BufferedSerial.h"
 
 class ServoAxis
 {
 public:
 
-    ServoAxis(PinName pin,float maxAngle_, float minAngle, float middleUs_, float usPerDeg_);
+    ServoAxis(PinName pin,float maxAngle_, float minAngle, float middleUs_, float usPerDeg_, float degOffset_);
     void setAngle(float angle);
 
 private:
     PwmOut* pwm;
     float middleUs;
     float usPerDeg;
+    float degOffset;
 
     float maxAngle; //roughtly
     float minAngle;

@@ -12,11 +12,15 @@ class SyncTime{
    void updateTime(float correction);
    void hardReset(int seconds, int nSeconds);
    float difference(rosTime first, rosTime later);
+   void setMultipler(float mult);
    
    private:
    void resetOffsetCounter();
    rosTime refTime;
    Timer sinceRefTimer;
+   float clockMultiplier;
+   float averageOffset;
+   int averageOffsetCount;
     
     
     };

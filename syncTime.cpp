@@ -1,6 +1,9 @@
 #include "syncTime.h"
 extern BufferedSerial buffered_pc;
 SyncTime::SyncTime( int seconds, int nSeconds ){
+    averageOffset = 0;
+    clockMultiplier = 0;
+    averageOffsetCount = 0;
     refTime.seconds = seconds;
     refTime.nSeconds = nSeconds;
     sinceRefTimer.reset();
@@ -12,7 +15,8 @@ SyncTime::SyncTime( int seconds, int nSeconds ){
     
 rosTime SyncTime::getTime(){
     rosTime ret;
-    uint64_t uSecs = sinceRefTimer.read_high_resolution_us();
+    uint64_t uSecs =  sinceRefTimer.read_high_resolution_us();
+    //uSecs = uSecs * (float)(1.0000136);
     ret.seconds = (int)(uSecs/million);
     ret.nSeconds = (int)((uSecs% million)*1000);
     ret.seconds += refTime.seconds;
@@ -26,6 +30,10 @@ rosTime SyncTime::getTime(){
         ret.nSeconds += (int)1e9;
         }
     return ret;
+}
+
+void SyncTime::setMultipler(float mult){
+    clockMultiplier = mult;
 }
 
 void SyncTime::resetOffsetCounter(){
@@ -52,6 +60,15 @@ void SyncTime::hardReset(int seconds, int nSeconds){
 void SyncTime::updateTime(float correction){
     int seconds = (int)correction;
     int nSeconds = (correction - (float)seconds) * 1e9;
+    // averageOffsetCount ++;
+    // averageOffset = 0.9*averageOffset + 0.1*correction;
+    // if(averageOffsetCount > 10){
+    //     averageOffset = 0.99*averageOffset + 0.01*correction;
+    //     setMultipler(averageOffset);
+    //     buffered_pc.printf("setting mult to %f", averageOffset);
+    // }
+    // if(averageOffsetCount > 1 && averageOffsetCount < 10) averageOffset = 0.9*averageOffset + 0.1*correction;
+    // if(averageOffsetCount == 1) averageOffset = correction;
 //    buffered_pc.printf("time before %ds %dns \n\r", refTime.seconds, refTime.nSeconds);
 //    buffered_pc.printf("updating by  %ds %dns \n\r", seconds, nSeconds);
     refTime.seconds += seconds;

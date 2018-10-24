@@ -1,8 +1,5 @@
 
 #include "kinematics.h"
-//this implementation has been taken from http://forums.trossenrobotics.com/tutorials/introduction-129/delta-robot-kinematics-3276/
-// robot geometry
-// (look at pics above for explanation)
 extern BufferedSerial buffered_pc;
 Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_,calVals calibration_)
 {
@@ -185,9 +182,16 @@ void Kinematics::goIdle(){
 int Kinematics::goToPos(float x, float y, float z)
 {
     //int error = delta_calcInverse(x,y,z,a,b,c);
-    DeltaKinematics<float>::DeltaVector DV = {x,y,z,0,0,0};
+    // here we are going to swap around the vector for the benefit of using ros cooridinates as input and output.
+    // for the delta gun project x is forwards (extending all arms equally), and Z is 'up' towards only one arm. 
+    // y is the right hand rule taking these two. 
+    DeltaKinematics<float>::DeltaVector DV = {-y,-z,-x,0,0,0};
     int  error = DK->CalculateIpk(&DV, 1);
-    //buffered_pc.printf("angles: a:%f , b:%f , c%f\r\n",DV.phi1,DV.phi2,DV.phi3);
+    float xc,yc,zc;
+    delta_calcForward(DV.phi1,DV.phi2,DV.phi3,xc,yc,zc);
+    buffered_pc.printf("pos: x:%f , y:%f , z%f\r\n",-zc,-xc,-yc);
+    error += DK->CalculateFpk(&DV, 1);
+    buffered_pc.printf("pos: x:%f , y:%f , z%f\r\n",-DV.z,-DV.x,-DV.y);
     DV.phi1 = (DV.phi1/180)*pi;
     DV.phi2 = (DV.phi2/180)*pi;
     DV.phi3 = (DV.phi3/180)*pi;
