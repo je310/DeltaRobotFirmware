@@ -1,7 +1,7 @@
 
 #include "kinematics.h"
 extern BufferedSerial buffered_pc;
-Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_,calVals calibration_)
+Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis* pitchAx_ ,calVals calibration_)
 {
     e = calibration_.e;
     f = calibration_.f;
@@ -10,6 +10,8 @@ Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_,calVals calibration_)
     A = A_;
     B = B_;
     C = C_;
+    pitchAx = pitchAx_;
+    yawAx = yawAx_;
     DeltaKinematics<float>::DeltaGeometricDim dim;
     dim.sb = f;
     dim.sp = e;
@@ -20,6 +22,84 @@ Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_,calVals calibration_)
     dim.min_parallelogram_angle = 30;
     
     DK = new DeltaKinematics<float>(dim);
+
+// produced automatically from the delta gun ros package. 
+    GunMarkerToBaseCentreM<<0.991585,-0.128629,-0.0145994,0.0421238,0.128538,0.99168,-0.00700335,-0.0157172,0.0153788,0.00506784,0.999869,-0.0490666,0,0,0,1;
+    GunMarkerToBaseCentreInvM<<0.991585,0.128538,0.0153788,-0.0389945,-0.128629,0.99168,0.00506784,0.0212534,-0.0145994,-0.00700335,0.999869,0.0495651,0,0,0,1;
+    HeadCentreToPitchM<<1,0,0,0.0277,0,1,0,-0.013051,0,0,1,-0.008051,0,0,0,1;
+    HeadCentreToPitchInvM<<1,0,0,-0.0277,0,1,0,0.013051,0,0,1,0.008051,0,0,0,1;
+    PitchToYawM<<1,-2.64474e-19,-1.72676e-18,0.011084,2.64474e-19,1,6.90705e-18,-1.13017e-06,1.72676e-18,-6.90705e-18,1,6.61416e-05,0,0,0,1;
+    PitchToYawInvM<<1,2.64474e-19,1.72676e-18,-0.011084,-2.64474e-19,1,-6.90705e-18,1.13017e-06,-1.72676e-18,6.90705e-18,1,-6.61416e-05,0,0,0,1;
+    imuToOriginM<<1,0,0,0.085571,0,1,0,0.0048,0,0,1,0,0,0,0,1;
+    imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.0048,0,0,1,0,0,0,0,1;
+
+        GunMarkerToBaseCentre = GunMarkerToBaseCentreM;
+    GunMarkerToBaseCentreInv = GunMarkerToBaseCentreInvM;
+    HeadCentreToPitch = HeadCentreToPitchM;
+    HeadCentreToPitchInv = HeadCentreToPitchInvM;
+    PitchToYaw = PitchToYawM;
+    PitchToYawInv = PitchToYawInvM;
+    imuToOrigin = imuToOriginM;
+    imuToOriginInv = imuToOriginInvM;
+
+}
+
+// this function will calculate the actuation neccessary  to get to a world position. 
+// current pos is the position of the IMU
+void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos){
+         Eigen::Affine3f origin = currentPos* imuToOrigin;
+    Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
+    Eigen::Vector3f rpy = originToTarget.rotation().matrix().eulerAngles(2, 0, 1);
+
+    //make separate rotation matrix
+    float yawAng =  rpy[0] ;
+    float pitchAng = rpy[2] ;
+//    for(int i = 0 ; i < 3; i ++){
+//        for(int j = 0; j < 3; j++){
+//            for(int k = 0; k  < 3; k++){
+//                rpy = originToTarget.rotation().matrix().eulerAngles(i, j, k);
+//                 yawAng =  rpy[0] ;
+//                pitchAng = rpy[2] ;
+//                std::cout << i <<"," << j<<","<< k<<": " << rpy[0] <<  "  " << rpy[1] << " " << rpy[2] << std::endl;
+//            }
+//        }
+//    }
+    rpy = originToTarget.rotation().matrix().eulerAngles(2, 0, 1);
+    yawAng =  rpy[0] ;
+   pitchAng = rpy[2] ;
+   if(yawAng > M_PI/2)yawAng -= M_PI;
+   if(pitchAng > M_PI/2)pitchAng -= M_PI;
+   if(yawAng < -M_PI/2)yawAng += M_PI;
+   if(pitchAng < -M_PI/2)pitchAng += M_PI;
+    Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
+    Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
+
+    Eigen::Affine3f kinOut = origin.inverse((Eigen::TransformTraits)1)
+                            * targetPos
+                            * yaw.inverse((Eigen::TransformTraits)1)
+                            * PitchToYawInv
+                            * pitch.inverse((Eigen::TransformTraits)1)
+                            * HeadCentreToPitchInv;
+    Eigen::Vector3f kinTrans = kinOut.translation();
+
+    Eigen::Vector3f centre(0.170,0,0);
+    float range = 0.090;
+    float dif = (kinTrans - centre).norm();
+    if(dif < range){
+        goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
+        yawAx->setAngle(180*yawAng/3.14);
+        pitchAx->setAngle(180*pitchAng/3.14);
+    }
+    else{
+        // here we instead clip the result to the allowable kinematics.
+        Eigen::Vector3f centreToTarget;
+        centreToTarget = kinTrans - centre;
+        kinTrans = centreToTarget.normalized()*range + centre;
+        goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
+        yawAx->setAngle(180*yawAng/3.14);
+        pitchAx->setAngle(180*pitchAng/3.14);
+    }
+
 
 }
 

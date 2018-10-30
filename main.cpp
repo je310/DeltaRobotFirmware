@@ -11,6 +11,8 @@
 #include    "syncTime.h"
 #include "MPU6050.h"
 #include "ESKF.h"
+#include <Core.h>
+#include <Geometry.h>
 #define EXTPIN1 PB_5  //pwm spi1_mosii
 #define EXTPIN2 PB_15 // PWM spi2 mosi
 #define EXTPIN3 PB_13   //PWM spi2sclk
@@ -35,6 +37,12 @@ int newABCSpaceCommand = 0;
 CartSpaceCmd XYZSpaceCommand;
 int newXYZSpaceCommand = 0;
 
+LocationOut mocapLocation;
+int newMocapLocation = 0;
+LocationIn locationReturnMsg;
+
+int newLocationReturnMsg =0;
+
 using std::string;
 const int BROADCAST_PORT_T = 58080;
 const int BROADCAST_PORT_R = 58081;
@@ -45,6 +53,10 @@ float batteryV = -1;
 UDPSocket socket;
 int isCon = 0;
 volatile int imuToSend = 0;
+    ImuDataChunk chunk;
+
+
+Mutex imudataMutex;
 ImuData imuDataBuffer;
 void transmit()
 {
@@ -53,6 +65,7 @@ void transmit()
     }
     string out_buffer = "very important data";
     SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
+    chunk.type = imuDataChunk;
     // fromRobot msg;
     // msg.motor1.busVoltage = 69;
     // buffered_pc.printf("starting send loop");
@@ -60,11 +73,36 @@ void transmit()
       //  msg.motor1.busVoltage += 1;
         //int ret = socket.sendto(transmit, &msg, sizeof(msg));
         //printf("sendto return: %d\n", ret);
+        
+        // imudataMutex.lock();
         if(imuToSend == 1){
+            static rosTime last;
             imuToSend = 0;
-            int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
+            
+            if(last.seconds != imuDataBuffer.time.seconds || last.nSeconds != imuDataBuffer.time.nSeconds){
+                static int count = -1;
+                count++;
+                last = imuDataBuffer.time;
+                // memcpy(&chunk.array[count%20], &imuDataBuffer,sizeof(ImuData));
+                // //chunk.array[count%20] = imuDataBuffer;
+                // if(count % 20 == 19){
+                //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
+                // }
+                int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
+            }
+            
         }
+        //imudataMutex.unlock();
+        if(newLocationReturnMsg ==1){
+            static rosTime last;
+            newLocationReturnMsg = 0;
+            if(last.seconds != locationReturnMsg.time.seconds || last.nSeconds != locationReturnMsg.time.nSeconds){
+                last = locationReturnMsg.time;
+                int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
 
+            }
+        }
+        
         Thread::yield();
     }
 }
@@ -109,6 +147,7 @@ void receive()
             debugTimer.reset();
         debugTimer.start();
                 int32_t typeInt = (int32_t)buffer[0];
+                now = timeTracker.getTime();
         switch(typeInt){
         case angleSpaceCmd:
             memcpy(&ABCSpaceCommand, buffer, n);
@@ -135,7 +174,7 @@ void receive()
                 pingMsg.type = pingIn;
                 pingMsg.sentTime.seconds = inmsg.time.seconds;
                 pingMsg.sentTime.nSeconds = inmsg.time.nSeconds;
-                now = timeTracker.getTime();
+                
                 pingMsg.responseTime.seconds = now.seconds;
                 pingMsg.responseTime.nSeconds = now.nSeconds;
                 debugTimer.stop();
@@ -154,8 +193,18 @@ void receive()
             }
             break;
 
-        case locationOut:
-
+        case locationOut:{
+            memcpy(&mocapLocation, buffer, n);
+            newMocapLocation = 1;
+            
+            locationReturnMsg.type = locationIn;
+            locationReturnMsg.pos = mocapLocation.pos;
+            locationReturnMsg.quat = mocapLocation.quat;
+            locationReturnMsg.refTime = mocapLocation.time;
+            locationReturnMsg.time = now;
+            //int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
+            //newLocationReturnMsg = 1;
+        }
             break;
 
         case pingIn:
@@ -190,6 +239,24 @@ int getCountPos(BufferedSerial ser, int axis)
 
 }
 
+Eigen::Affine3f posAngToEigen(Eigen::Vector3f pos, float yawin, float pitchin){
+    float pi = M_PI;
+    Eigen::Affine3f mat = Eigen::Translation3f(pos) * Eigen::AngleAxisf(pi*yawin/180, Eigen::Vector3f::UnitZ())
+                        * Eigen::AngleAxisf(pi*pitchin/180, Eigen::Vector3f::UnitY());
+
+    return mat;
+
+}
+
+Eigen::Affine3f transformToEigen(Eigen::Vector3f pos, Eigen::Quaternionf quat){
+    Eigen::Affine3f out;
+    out.setIdentity();
+    Eigen::Vector3f translate(pos[0],pos[1],pos[2]);
+    out.translate(translate);
+    out.rotate(quat);
+    return out;
+}
+
 void runOdrive()
 {
     //start servos on endEffector
@@ -219,7 +286,7 @@ void runOdrive()
     error +=B.test();
     error +=C.test();
     buffered_pc.printf("there were %d errors in the read/write\r\n",error);
-    Kinematics kin(&A, &B, &C, calibration); // the Kinematics class contains everything
+    Kinematics kin(&A, &B, &C,&yaw, &pitch, calibration); // the Kinematics class contains everything
     buffered_pc.printf("setting motors to idle\r\n");
     kin.goIdle();
     kin.goIdle();
@@ -285,6 +352,13 @@ void runOdrive()
             pitch.setAngle(XYZSpaceCommand.pitch);
             yaw.setAngle(XYZSpaceCommand.yaw);
         }
+        if(newMocapLocation){
+            newMocapLocation = 0;
+            buffered_pc.printf("mocap!\r\n");
+            Eigen::Affine3f here = transformToEigen(Eigen::Vector3f(mocapLocation.pos.x,mocapLocation.pos.y,mocapLocation.pos.z),Eigen::Quaternionf(mocapLocation.quat.w,mocapLocation.quat.x,mocapLocation.quat.y,mocapLocation.quat.z));
+            Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
+            kin.goToWorldPos(here,target);
+        }
         Thread::wait(1);
         if(loopCounter % 2000 == 0) {
             batteryV = OD1.readBattery();
@@ -300,9 +374,6 @@ void accelInterrupt(){
 
             newData = 1;
             timeMes = timeTracker.getTime();
-            static rosTime prevTime;
-            accelDeltaT = timeTracker.difference(prevTime,timeMes);
-            prevTime = timeMes;
 
 }
 
@@ -323,39 +394,63 @@ void accelThread()
     t.start();
     float sum = 0;
     uint32_t sumCount = 0;
-    int dataCount = 0 ;
+    int dataCount = -1 ;
+    //rotation mat for the accel, to correct for mounting, result should be ros convention. 
+    Eigen::Matrix<float, 3,3> rotMat;
+    rotMat <<   -1, 0, 0
+                ,0, 0,-1
+                ,0,-1, 0;
+    ImuData dataOut; 
+    Eigen::Vector3f accel;
+    Eigen::Vector3f gyro;
+    SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
+    ImuDataChunk chunk;
+    chunk.type = imuDataChunk;
     while(1) {
         //Thread::wait(200);
+
         if(newData){
             newData = 0;
-            dataCount ++;
-            ImuData dataOut; 
-            
-                        static rosTime oldTime{0,0};
-            mpu.readAccelData(accelCount);  // Read the x/y/z adc values
-            mpu.getAres();
-
-            // Now we'll calculate the accleration value into actual g's
-            imuDataBuffer.accel.x  = (float)accelCount[0]*aRes;  // get actual g value, this depends on scale being set
-            imuDataBuffer.accel.y = (float)accelCount[1]*aRes;
-            imuDataBuffer.accel.z = (float)accelCount[2]*aRes;
-
-            mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
-            mpu.getGres();
-
-            // Calculate the gyro value into actual degrees per second
-            imuDataBuffer.gyro.x = (float)gyroCount[0]*gRes; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
-            imuDataBuffer.gyro.y = (float)gyroCount[1]*gRes; // - gyroBias[1];
-            imuDataBuffer.gyro.z = (float)gyroCount[2]*gRes; // - gyroBias[2];
-            imuDataBuffer.type = imuData;
             imuDataBuffer.time.seconds = timeMes.seconds;
             imuDataBuffer.time.nSeconds = timeMes.nSeconds;
+            dataCount ++;
+
+            mpu.readAccelData(accelCount);  // Read the x/y/z adc values
+            mpu.getAres();
+            mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
+            mpu.getGres();
+            
+            accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
+
+            accel = (rotMat * accel).eval();
+            gyro <<  (float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+            gyro = (rotMat * gyro).eval();
+
+                        // Now we'll calculate the accleration value into actual g's
+
+            imuDataBuffer.accel.x  = accel[0];  // get actual g value, this depends on scale being set
+            imuDataBuffer.accel.y = accel[1];
+            imuDataBuffer.accel.z = accel[2];
+
+            imuDataBuffer.gyro.x = gyro[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+            imuDataBuffer.gyro.y = gyro[1]; // - gyroBias[1];
+            imuDataBuffer.gyro.z = gyro[2]; // - gyroBias[2];
+
+            imuDataBuffer.type = imuData;
+            //int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
+            // chunk.array[dataCount] = imuDataBuffer;
+            // if(dataCount == 19){
+            //     dataCount = 0;
+            //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
+            // }
             //imuToSend = 1;
             
-            if(dataCount % 2000 ==0){
-               // buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fhz\r\n",ax,ay,az,gx,gy,gz,timeMes.seconds,timeMes.nSeconds, 1.0/accelDeltaT);
-            }
+            
+            // if(dataCount % 2000 ==0){
+            //     buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fhz\r\n",accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2],timeMes.seconds,timeMes.nSeconds, 1.0/accelDeltaT);
+            // }
         }
+
         Thread::yield();
 
     }
@@ -419,12 +514,12 @@ int main()
     
     i2c.frequency(400000);
     Thread transmitter;
-    Thread receiver(osPriorityRealtime, 32 * 1024);
-    Thread odriveThread;
-    Thread accel;
+    Thread receiver(osPriorityNormal, 32 * 1024);
+    Thread odriveThread(osPriorityNormal, 16 * 1024);;
+    Thread accel(osPriorityNormal, 32 * 1024);;
     Thread timeUpdate;
     Thread printBattery;
-    Thread ESKFT(osPriorityNormal, 32 * 1024) /* 8K stack */;
+    Thread ESKFT(osPriorityNormal, 32 * 1024) /* 32K stack */;
     //ESKFT.start(ESKFThread);
 
     //set switches up

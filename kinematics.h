@@ -6,6 +6,9 @@
 #include "calibration.h"
 #include "comms.h"
 #include "DeltaKinematics.h"
+#include <Core.h>
+#include <Geometry.h>
+#include <servoAxis.h>
 
 
 
@@ -23,7 +26,7 @@
 class Kinematics
 {
 public:
-    Kinematics(Axis* A_, Axis* B_, Axis* C_,calVals calibration_);
+    Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis* pitchAx_ ,calVals calibration_);
     int goToPos(float x, float y, float z);
     void goToAngles(float a, float b, float c);
     void goToPosVel(float x, float y, float z, float xv, float yv, float zv);
@@ -35,6 +38,7 @@ public:
     int setSafeParams();
     int setFastParams();
     DeltaKinematics<float>* DK;
+    void goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos);
 
 
 private:
@@ -49,6 +53,26 @@ private:
     Axis* A;
     Axis* B;
     Axis* C;
+    ServoAxis* yawAx;
+    ServoAxis* pitchAx;
+
+    // specific to my kinematics
+    Eigen::Affine3f GunMarkerToBaseCentre;
+    Eigen::Matrix4f GunMarkerToBaseCentreM;
+    Eigen::Affine3f GunMarkerToBaseCentreInv;
+    Eigen::Matrix4f GunMarkerToBaseCentreInvM;
+    Eigen::Affine3f HeadCentreToPitch;
+    Eigen::Matrix4f HeadCentreToPitchM;
+    Eigen::Affine3f HeadCentreToPitchInv;
+    Eigen::Matrix4f HeadCentreToPitchInvM;
+    Eigen::Affine3f PitchToYaw;
+    Eigen::Matrix4f PitchToYawM;
+    Eigen::Affine3f PitchToYawInv;
+    Eigen::Matrix4f PitchToYawInvM;
+    Eigen::Affine3f imuToOrigin;
+    Eigen::Matrix4f imuToOriginM;
+    Eigen::Affine3f imuToOriginInv;
+    Eigen::Matrix4f imuToOriginInvM;
 
 
 };

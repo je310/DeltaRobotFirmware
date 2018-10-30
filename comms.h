@@ -13,7 +13,8 @@ enum messageType{
     pingIn= 4,
     locationIn=5,
     userIn = 6,
-    imuData = 7
+    imuData = 7,
+    imuDataChunk = 8
 };
 
 struct vectorThree{
@@ -74,6 +75,7 @@ struct LocationIn{
     vectorThree pos;
     vectorFour quat;
     rosTime time;
+    rosTime refTime;
 };
 
 struct UserIn{
@@ -86,6 +88,11 @@ struct ImuData{
     vectorThree accel;
     vectorThree gyro;
     rosTime time;
+};
+
+struct ImuDataChunk{
+    int32_t type;
+    ImuData array[20];
 };
 
 //struct OdriveCMD{
