@@ -18,7 +18,6 @@ ServoAxis::ServoAxis(PinName pin,float maxAngle_, float minAngle_, float middleU
         angle += degOffset;
         if(angle > maxAngle) angle = maxAngle;
         if(angle < minAngle) angle = minAngle;
-        buffered_pc.printf("middle %f  angle %f   usPerDeg %f \r\n", middleUs, angle, usPerDeg);
         pwm->pulsewidth_us(middleUs + angle * usPerDeg);
         
         }

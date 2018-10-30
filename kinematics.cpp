@@ -269,9 +269,7 @@ int Kinematics::goToPos(float x, float y, float z)
     int  error = DK->CalculateIpk(&DV, 1);
     float xc,yc,zc;
     delta_calcForward(DV.phi1,DV.phi2,DV.phi3,xc,yc,zc);
-    buffered_pc.printf("pos: x:%f , y:%f , z%f\r\n",-zc,-xc,-yc);
     error += DK->CalculateFpk(&DV, 1);
-    buffered_pc.printf("pos: x:%f , y:%f , z%f\r\n",-DV.z,-DV.x,-DV.y);
     DV.phi1 = (DV.phi1/180)*pi;
     DV.phi2 = (DV.phi2/180)*pi;
     DV.phi3 = (DV.phi3/180)*pi;

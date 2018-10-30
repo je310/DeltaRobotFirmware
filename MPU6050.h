@@ -149,7 +149,7 @@ enum Gscale {
 };
  
 // Specify sensor full scale
-int Gscale = GFS_250DPS;
+int Gscale = GFS_500DPS;
 int Ascale = AFS_2G;
  
 //Set up I2C, (SDA,SCL)
