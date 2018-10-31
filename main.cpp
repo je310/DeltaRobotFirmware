@@ -1,3 +1,5 @@
+
+//includes. 
 #include "mbed.h"
 #include "odrive.h"
 #include "lwip-interface/EthernetInterface.h"
@@ -13,6 +15,8 @@
 #include "ESKF.h"
 #include <Core.h>
 #include <Geometry.h>
+
+//pin definiitions
 #define EXTPIN1 PB_5  //pwm spi1_mosii
 #define EXTPIN2 PB_15 // PWM spi2 mosi
 #define EXTPIN3 PB_13   //PWM spi2sclk
@@ -21,21 +25,28 @@
 #define EXTPIN6 PC_7    //RX6 PWM
 #define ACCEL_INT PA_5    //RX6 PWM
 
-using namespace Eigen;
-
 #define SQ(x) (x*x)
+#define I_3 (Eigen::Matrix3f::Identity())
+#define I_dx (Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE>::Identity())
+
 #define GRAVITY     9.812  // London g value.
 
-    Thread transmitterT;
-    Thread receiverT(osPriorityBelowNormal, 32 * 1024);
-    Thread odriveThread(osPriorityNormal, 16 * 1024);
-    Thread accelT(osPriorityAboveNormal, 32 * 1024);
-    Thread timeUpdate;
-    Thread printBattery;
-    Thread ESKFT(osPriorityNormal, 32 * 1024) /* 32K stack */;
+using namespace Eigen;
+using std::string;
 
-    Timer debugTimer;
 
+//threads and debugging for threads 
+Timer debugTimer;
+
+Thread transmitterT(osPriorityNormal, 2 * 1024,NULL, "transmitterThread");
+Thread receiverT(osPriorityNormal, 32 * 1024,NULL, "receiverThread");
+Thread odriveThread(osPriorityNormal, 16 * 1024,NULL, "OdriveThread");
+Thread accelT(osPriorityNormal, 32 * 1024,NULL, "AccelThread");
+Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
+Thread ESKFT(osPriorityNormal, 32 * 1024,NULL, "ESKFThread") /* 32K stack */;
+
+
+//io declarations
 DigitalOut led1(LED1);
 DigitalOut homeGND(PF_5);
 DigitalIn homeSwitchA(PA_3);
@@ -44,10 +55,10 @@ DigitalIn homeSwitchC(PC_3);
 DigitalOut accelPower(PA_6);
 DigitalIn trigger(PF_3);
 BufferedSerial buffered_pc(SERIAL_TX, SERIAL_RX,1024);
-calVals calibration;
-MPU6050 mpu;
 I2C i2c(PB_9, PB_8);
 
+
+//data latches. 
 AngleSpaceCmd ABCSpaceCommand;
 int newABCSpaceCommand = 0;
 CartSpaceCmd XYZSpaceCommand;
@@ -58,26 +69,40 @@ int newMocapLocation = 0;
 LocationIn locationReturnMsg;
 
 int newLocationReturnMsg =0;
+PingIn pingMsg;
 
-using std::string;
+
+//network globals
 const int BROADCAST_PORT_T = 58080;
 const int BROADCAST_PORT_R = 58081;
 EthernetInterface eth;
-
 SyncTime timeTracker(0,0);
-float batteryV = -1;
 UDPSocket socket;
 int isCon = 0;
-volatile int imuToSend = 0;
-    ImuDataChunk chunk;
 
+
+//eskf globals
 ESKF* eskfPTR;
 int updatedESKF = 0;
+
+//odrive globals
+calVals calibration;
+float batteryV = -1;
+
+//imu globals
+MPU6050 mpu;
 Mutex imudataMutex;
 ImuData imuDataBuffer;
+volatile int imuToSend = 0;
+ImuDataChunk chunk;
+Eigen::Vector3f accel;
+Eigen::Vector3f gyro;
+volatile int newData = 0;
+rosTime timeMes;
+rosTime lastIMUTime;
+int accelPending = 0;
 
-    Eigen::Vector3f accel;
-    Eigen::Vector3f gyro;
+
 void transmit()
 {
     while(isCon != 0) {
@@ -126,7 +151,7 @@ void transmit()
         Thread::wait(100);
     }
 }
-PingIn pingMsg;
+
 void receive()
 {
     eth.connect();
@@ -371,11 +396,16 @@ void runOdrive()
         }
         if(updatedESKF == 1){
             updatedESKF = 0;
+            if(loopCounter % 1000 == 0){
+                Vector3f pos = eskfPTR->getPos();
+                buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
+            }
             Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
             Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
             kin.goToWorldPos(here,target);
         }
-        Thread::signal_wait(0x1);
+        //Thread::signal_wait(0x1);
+        Thread::yield();
         if(loopCounter % 200000 == 0) {
             batteryV = OD1.readBattery();
         }
@@ -383,21 +413,19 @@ void runOdrive()
 
 }
 
-volatile int newData = 0;
-rosTime timeMes;
-float accelDeltaT =1;
+float detlaTimu = 0.001;
 void accelInterrupt(){
             newData = 1;
             timeMes = timeTracker.getTime();
-            accelT.signal_clr(0x1);
-            accelT.signal_set(0x1);
+            // if(!accelPending){
+            //     accelT.signal_set(0x1);
+            // }
 
 }
 
 void accelThread()
 {
     InterruptIn intPin(ACCEL_INT);
-
     accelPower = 1;
     uint8_t whoami = mpu.readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050);  // Read WHO_AM_I register for MPU-6050
     buffered_pc.printf("I AM 0x%x\n\r", whoami);
@@ -463,6 +491,8 @@ void accelThread()
             //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
             // }
             imuToSend = 1;
+            detlaTimu = timeTracker.difference(lastIMUTime, timeMes);
+            lastIMUTime = timeMes;
             ESKFT.signal_set(0x1);
             if(dataCount % 2000 ==0){
                 float fps = 1000000 * dataCount / debugT.read_us();
@@ -471,9 +501,10 @@ void accelThread()
                 debugT.reset();
             }
         }
-        //Thread::yield();
-        Thread::signal_wait(0x1);
-        accelT.signal_clr(0x1);
+        Thread::yield();
+        accelPending = 0;
+        //Thread::signal_wait(0x1);
+        accelPending = 1;
 
     }
 }
@@ -507,7 +538,6 @@ void ESKFThread(){
     float sigma_mocap_pos = 0.001; // [m]
     float sigma_mocap_rot = 0.010; // [rad]
     eskfPTR = new ESKF(
-            0.001f, // delta_t
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
                 Vector3f(0, 0, 0), // init pos
@@ -551,18 +581,20 @@ void ESKFThread(){
         }
         if(imuToSend==1){
             imuToSend = 0;
-            eskfPTR->predictIMU(accel,gyro);
+                eskfPTR->predictIMU(accel,gyro,0.001f);
+
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
-                        mocapCount ++;
+                        imuCount ++;
             if(imuCount == 200){
                 float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
-                buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
-                mocapCount = 0;
+                buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
+                imuCount = 0;
                 lastIMUT = debugTimer.read_us();
             }
         }
-        Thread::signal_wait(0x1);
+        Thread::yield();
+        //Thread::signal_wait(0x1);
     }
 
 
@@ -589,7 +621,7 @@ int main()
     calibration.Coffset = 0.43 - 0.111701 + 0.0142;
     calibration.gearRatio = 89.0/24.0;
     
-    i2c.frequency(400000);
+    i2c.frequency(1000000);
 
     
 
@@ -609,7 +641,7 @@ int main()
     receiverT.start(receive);
     Thread::wait(5000);
     ESKFT.start(ESKFThread);
-    transmitterT.start(transmit);
+    //transmitterT.start(transmit);
     odriveThread.start(runOdrive);
     accelT.start(accelThread);
     printBattery.start(batteryThread);

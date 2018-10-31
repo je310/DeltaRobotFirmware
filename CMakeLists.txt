@@ -20,7 +20,7 @@ SET(ELF2BIN               "arm-none-eabi-objcopy")
 
 # if the environment does not specify build type, set to Debug
 IF(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "Debug"
+  set(CMAKE_BUILD_TYPE "Release"
         CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel."
         FORCE)
 ENDIF()
