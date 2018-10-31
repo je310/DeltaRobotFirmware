@@ -44,33 +44,91 @@ Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis
 
 }
 
+//taken from the ros source code and changed to use eigen. Has  more pleasing result. 
+void Kinematics::getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch, float& roll)
+{
+     unsigned int solution_number = 1;
+    Eigen::Vector3f m_el[3];
+   m_el[0] =  mat.row(0);
+   m_el[1] =  mat.row(1);
+   m_el[2] =  mat.row(2);
+    struct Euler
+    {
+        float yaw;
+        float pitch;
+        float roll;
+    };
+
+    Euler euler_out;
+    Euler euler_out2; //second solution
+    //get the pointer to the raw data
+
+    // Check that pitch is not at a singularity
+    // Check that pitch is not at a singularity
+    if (fabs(m_el[2].x()) >= 1)
+    {
+        euler_out.yaw = 0;
+        euler_out2.yaw = 0;
+
+        // From difference of angles formula
+        if (m_el[2].x() < 0)  //gimbal locked down
+        {
+          float delta = atan2(m_el[0].y(),m_el[0].z());
+            euler_out.pitch = M_PI / 2.0;
+            euler_out2.pitch = M_PI / 2.0;
+            euler_out.roll = delta;
+            euler_out2.roll = delta;
+        }
+        else // gimbal locked up
+        {
+          float delta = atan2(-m_el[0].y(),-m_el[0].z());
+            euler_out.pitch = -M_PI / 2.0;
+            euler_out2.pitch = -M_PI / 2.0;
+            euler_out.roll = delta;
+            euler_out2.roll = delta;
+        }
+    }
+    else
+    {
+        euler_out.pitch = - asin(m_el[2].x());
+        euler_out2.pitch = M_PI - euler_out.pitch;
+
+        euler_out.roll = atan2(m_el[2].y()/cos(euler_out.pitch),
+            m_el[2].z()/cos(euler_out.pitch));
+        euler_out2.roll = atan2(m_el[2].y()/cos(euler_out2.pitch),
+            m_el[2].z()/cos(euler_out2.pitch));
+
+        euler_out.yaw = atan2(m_el[1].x()/cos(euler_out.pitch),
+            m_el[0].x()/cos(euler_out.pitch));
+        euler_out2.yaw = atan2(m_el[1].x()/cos(euler_out2.pitch),
+            m_el[0].x()/cos(euler_out2.pitch));
+    }
+
+    if (solution_number == 1)
+    {
+        yaw = euler_out.yaw;
+        pitch = euler_out.pitch;
+        roll = euler_out.roll;
+    }
+    else
+    {
+        yaw = euler_out2.yaw;
+        pitch = euler_out2.pitch;
+        roll = euler_out2.roll;
+    }
+}
+
 // this function will calculate the actuation neccessary  to get to a world position. 
 // current pos is the position of the IMU
 void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos){
          Eigen::Affine3f origin = currentPos* imuToOrigin;
     Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
-    Eigen::Vector3f rpy = originToTarget.rotation().matrix().eulerAngles(2, 0, 1);
-
+    float r , p , y;
+    getEulerYPREigen(originToTarget.rotation(), y, p, r);
     //make separate rotation matrix
-    float yawAng =  rpy[0] ;
-    float pitchAng = rpy[2] ;
-//    for(int i = 0 ; i < 3; i ++){
-//        for(int j = 0; j < 3; j++){
-//            for(int k = 0; k  < 3; k++){
-//                rpy = originToTarget.rotation().matrix().eulerAngles(i, j, k);
-//                 yawAng =  rpy[0] ;
-//                pitchAng = rpy[2] ;
-//                std::cout << i <<"," << j<<","<< k<<": " << rpy[0] <<  "  " << rpy[1] << " " << rpy[2] << std::endl;
-//            }
-//        }
-//    }
-    rpy = originToTarget.rotation().matrix().eulerAngles(2, 0, 1);
-    yawAng =  rpy[0] ;
-   pitchAng = rpy[2] ;
-   if(yawAng > M_PI/2)yawAng -= M_PI;
-   if(pitchAng > M_PI/2)pitchAng -= M_PI;
-   if(yawAng < -M_PI/2)yawAng += M_PI;
-   if(pitchAng < -M_PI/2)pitchAng += M_PI;
+    float yawAng =  y;
+    float pitchAng = p;
+
     Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
     Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
 

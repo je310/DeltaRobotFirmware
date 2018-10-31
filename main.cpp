@@ -353,7 +353,7 @@ void runOdrive()
 
     //kin.goToAngles(pi/4,pi/4,pi/4);
     Thread::wait(500);
-    //error += kin.setFastParams();
+    error += kin.setFastParams();
     while(error) {}
     Thread::wait(1000);
 
@@ -379,31 +379,45 @@ void runOdrive()
             }
         }
         if(count>90) {
-           
+             i += inc;
+            if(up == 1)k+=0.2;
+            else k-=0.2;
+            if(k <= min) up = 0;
+            if(k >= max) up = 1;
+            radius =0.6* (span - abs(abs(k) - mid));
+            //buffered_pc.printf("x,y,z = %f %f %f",radius*sin(i),radius*cos(i),k);
+            int error = kin.goToPos(40.0*sin(i)/1000.0,40.0*cos(i)/1000.0,k/1000.0);
+            pitch.setAngle(25.0*sin(i));
+            yaw.setAngle(25.0*cos(i));
+            //int error = kin.goToPos(0,0,k);
+            if(i > 2*pi) i = 0;
+            Thread::wait(1);
         }
-        if(newABCSpaceCommand == 1){
-            newABCSpaceCommand = 0;
-            kin.goToAngles(ABCSpaceCommand.A,ABCSpaceCommand.B,ABCSpaceCommand.C);
-            pitch.setAngle(ABCSpaceCommand.pitch);
-            yaw.setAngle(ABCSpaceCommand.yaw);
-        }
-        if(newXYZSpaceCommand == 1){
-            newXYZSpaceCommand = 0;
-            error += kin.goToPos(XYZSpaceCommand.pos.x,XYZSpaceCommand.pos.y,XYZSpaceCommand.pos.z);
-            if(error) buffered_pc.printf("There was an error moving ");
-            pitch.setAngle(XYZSpaceCommand.pitch);
-            yaw.setAngle(XYZSpaceCommand.yaw);
-        }
-        if(updatedESKF == 1){
-            updatedESKF = 0;
-            if(loopCounter % 1000 == 0){
-                Vector3f pos = eskfPTR->getPos();
-                buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
+        else{
+            if(newABCSpaceCommand == 1){
+                newABCSpaceCommand = 0;
+                kin.goToAngles(ABCSpaceCommand.A,ABCSpaceCommand.B,ABCSpaceCommand.C);
+                pitch.setAngle(ABCSpaceCommand.pitch);
+                yaw.setAngle(ABCSpaceCommand.yaw);
             }
-            Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
-            Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
-            kin.goToWorldPos(here,target);
-        }
+            if(newXYZSpaceCommand == 1){
+                newXYZSpaceCommand = 0;
+                error += kin.goToPos(XYZSpaceCommand.pos.x,XYZSpaceCommand.pos.y,XYZSpaceCommand.pos.z);
+                if(error) buffered_pc.printf("There was an error moving ");
+                pitch.setAngle(XYZSpaceCommand.pitch);
+                yaw.setAngle(XYZSpaceCommand.yaw);
+            }
+            if(updatedESKF == 1){
+                updatedESKF = 0;
+                if(loopCounter % 1000 == 0){
+                    Vector3f pos = eskfPTR->getPos();
+                    buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
+                }
+                Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
+                Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
+                kin.goToWorldPos(here,target);
+            }
+    }
         //Thread::signal_wait(0x1);
         Thread::yield();
         if(loopCounter % 200000 == 0) {

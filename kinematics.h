@@ -39,6 +39,7 @@ public:
     int setFastParams();
     DeltaKinematics<float>* DK;
     void goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos);
+    void getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch, float& roll);
 
 
 private:
