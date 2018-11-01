@@ -25,6 +25,7 @@
 #define EXTPIN6 PC_7    //RX6 PWM
 #define ACCEL_INT PA_5    //RX6 PWM
 
+#define EIGEN_NO_MALLOC
 #define SQ(x) (x*x)
 #define I_3 (Eigen::Matrix3f::Identity())
 #define I_dx (Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE>::Identity())

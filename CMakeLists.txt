@@ -17,10 +17,11 @@ SET(CMAKE_C_COMPILER      "arm-none-eabi-gcc")
 SET(CMAKE_CXX_COMPILER    "arm-none-eabi-g++")
 SET(ELF2BIN               "arm-none-eabi-objcopy")
 
+set(CMAKE_BUILD_TYPE "Release")
 
 # if the environment does not specify build type, set to Debug
 IF(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE "Release"
+  set(CMAKE_BUILD_TYPE "Debug"
         CACHE STRING "Choose the type of build, options are: Debug Release RelWithDebInfo MinSizeRel."
         FORCE)
 ENDIF()
