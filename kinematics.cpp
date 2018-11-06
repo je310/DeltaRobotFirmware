@@ -121,6 +121,7 @@ void Kinematics::getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch,
 // this function will calculate the actuation neccessary  to get to a world position. 
 // current pos is the position of the IMU
 void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos){
+
          Eigen::Affine3f origin = currentPos* imuToOrigin;
     Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
     float r , p , y;
@@ -132,6 +133,8 @@ void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f target
     Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
     Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
 
+    
+
     Eigen::Affine3f kinOut = origin.inverse((Eigen::TransformTraits)1)
                             * targetPos
                             * yaw.inverse((Eigen::TransformTraits)1)
@@ -139,6 +142,8 @@ void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f target
                             * pitch.inverse((Eigen::TransformTraits)1)
                             * HeadCentreToPitchInv;
     Eigen::Vector3f kinTrans = kinOut.translation();
+
+    
 
     Eigen::Vector3f centre(0.170,0,0);
     float range = 0.090;
@@ -159,6 +164,7 @@ void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f target
         yawAx->setAngle(180*yawAng/3.14);
         pitchAx->setAngle(180*pitchAng/3.14);
     }
+
 
 
 }
@@ -327,9 +333,7 @@ int Kinematics::goToPos(float x, float y, float z)
     // y is the right hand rule taking these two. 
     DeltaKinematics<float>::DeltaVector DV = {-y,-z,-x,0,0,0};
     int  error = DK->CalculateIpk(&DV, 1);
-    // float xc,yc,zc;
-    // delta_calcForward(DV.phi1,DV.phi2,DV.phi3,xc,yc,zc);
-    // error += DK->CalculateFpk(&DV, 1);
+
     DV.phi1 = (DV.phi1/180)*pi;
     DV.phi2 = (DV.phi2/180)*pi;
     DV.phi3 = (DV.phi3/180)*pi;

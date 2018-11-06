@@ -43,6 +43,7 @@ Thread transmitterT(osPriorityNormal, 2 * 1024,NULL, "transmitterThread");
 Thread receiverT(osPriorityNormal, 32 * 1024,NULL, "receiverThread");
 Thread odriveThread(osPriorityBelowNormal, 16 * 1024,NULL, "OdriveThread");
 Thread accelT(osPriorityAboveNormal, 32 * 1024,NULL, "AccelThread");
+
 Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
 Thread ESKFT(osPriorityNormal, 32 * 1024,NULL, "ESKFThread") /* 32K stack */;
 
