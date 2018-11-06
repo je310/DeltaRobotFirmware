@@ -18,6 +18,7 @@
 
 #include "drivers/DigitalOut.h"
 #include "platform/PlatformMutex.h"
+#include "platform/NonCopyable.h"
 
 namespace mbed {
 /** \addtogroup drivers */
@@ -25,7 +26,7 @@ namespace mbed {
 /** A digital output bus, used for setting the state of a collection of pins
  * @ingroup drivers
  */
-class BusOut {
+class BusOut : private NonCopyable<BusOut> {
 
 public:
 
@@ -86,7 +87,8 @@ public:
      *  @returns
      *    Binary mask of connected pins
      */
-    int mask() {
+    int mask()
+    {
         // No lock needed since _nc_mask is not modified outside the constructor
         return _nc_mask;
     }
@@ -94,13 +96,13 @@ public:
     /** A shorthand for write()
      * \sa BusOut::write()
      */
-    BusOut& operator= (int v);
-    BusOut& operator= (BusOut& rhs);
+    BusOut &operator= (int v);
+    BusOut &operator= (BusOut &rhs);
 
     /** Access to particular bit in random-iterator fashion
      * @param index  Bit Position
      */
-    DigitalOut& operator[] (int index);
+    DigitalOut &operator[](int index);
 
     /** A shorthand for read()
      * \sa BusOut::read()
@@ -110,7 +112,7 @@ public:
 protected:
     virtual void lock();
     virtual void unlock();
-    DigitalOut* _pin[16];
+    DigitalOut *_pin[16];
 
     /* Mask of bus's NC pins
      * If bit[n] is set to 1 - pin is connected
@@ -119,11 +121,6 @@ protected:
     int _nc_mask;
 
     PlatformMutex _mutex;
-
-   /* disallow copy constructor and assignment operators */
-private:
-    BusOut(const BusOut&);
-    BusOut & operator = (const BusOut&);
 };
 
 } // namespace mbed

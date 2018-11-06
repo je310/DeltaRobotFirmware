@@ -18,7 +18,6 @@
 #include <ctype.h>
 #include <cstdio>
 #include <string.h>
-#include "mbed.h"
 #include "greentea-client/test_env.h"
 #include "greentea-client/greentea_serial.h"
 #include "greentea-client/greentea_metrics.h"
@@ -728,6 +727,7 @@ static int gettok(char *out_str, const int str_size) {
 	if (LastChar == '}') {
 		LastChar = greentea_getc();
 		if (LastChar == '}') {
+			LastChar = '!';
 			return tok_close;
 		}
 	}

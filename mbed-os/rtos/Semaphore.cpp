@@ -20,6 +20,7 @@
  * SOFTWARE.
  */
 #include "rtos/Semaphore.h"
+#include "rtos/Kernel.h"
 #include "platform/mbed_assert.h"
 
 #include <string.h>
@@ -36,10 +37,10 @@ Semaphore::Semaphore(int32_t count, uint16_t max_count) {
 
 void Semaphore::constructor(int32_t count, uint16_t max_count) {
     memset(&_obj_mem, 0, sizeof(_obj_mem));
-    memset(&_attr, 0, sizeof(_attr));
-    _attr.cb_mem = &_obj_mem;
-    _attr.cb_size = sizeof(_obj_mem);
-    _id = osSemaphoreNew(max_count, count, &_attr);
+    osSemaphoreAttr_t attr = { 0 };
+    attr.cb_mem = &_obj_mem;
+    attr.cb_size = sizeof(_obj_mem);
+    _id = osSemaphoreNew(max_count, count, &attr);
     MBED_ASSERT(_id != NULL);
 }
 
@@ -54,6 +55,19 @@ int32_t Semaphore::wait(uint32_t millisec) {
         case osErrorParameter:
         default:
             return -1;
+    }
+}
+
+int32_t Semaphore::wait_until(uint64_t millisec) {
+    uint64_t now = Kernel::get_ms_count();
+
+    if (now >= millisec) {
+        return wait(0);
+    } else if (millisec - now >= osWaitForever) {
+        // API permits early return
+        return wait(osWaitForever - 1);
+    } else {
+        return wait(millisec - now);
     }
 }
 

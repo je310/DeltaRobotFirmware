@@ -14,10 +14,13 @@
  * limitations under the License.
  */
 #include "hal/lp_ticker_api.h"
+#include "hal/mbed_lp_ticker_wrapper.h"
 
-#if DEVICE_LOWPOWERTIMER
+#if DEVICE_LPTICKER
 
 static ticker_event_queue_t events = { 0 };
+
+static ticker_irq_handler_type irq_handler = ticker_irq_handler;
 
 static const ticker_interface_t lp_interface = {
     .init = lp_ticker_init,
@@ -25,6 +28,9 @@ static const ticker_interface_t lp_interface = {
     .disable_interrupt = lp_ticker_disable_interrupt,
     .clear_interrupt = lp_ticker_clear_interrupt,
     .set_interrupt = lp_ticker_set_interrupt,
+    .fire_interrupt = lp_ticker_fire_interrupt,
+    .get_info = lp_ticker_get_info,
+    .free = lp_ticker_free,
 };
 
 static const ticker_data_t lp_data = {
@@ -32,14 +38,33 @@ static const ticker_data_t lp_data = {
     .queue = &events,
 };
 
-const ticker_data_t* get_lp_ticker_data(void)
+const ticker_data_t *get_lp_ticker_data(void)
 {
+#if LPTICKER_DELAY_TICKS > 0
+    return get_lp_ticker_wrapper_data(&lp_data);
+#else
     return &lp_data;
+#endif
+}
+
+ticker_irq_handler_type set_lp_ticker_irq_handler(ticker_irq_handler_type ticker_irq_handler)
+{
+    ticker_irq_handler_type prev_irq_handler = irq_handler;
+
+    irq_handler = ticker_irq_handler;
+
+    return prev_irq_handler;
 }
 
 void lp_ticker_irq_handler(void)
 {
-    ticker_irq_handler(&lp_data);
+#if LPTICKER_DELAY_TICKS > 0
+    lp_ticker_wrapper_irq_handler(irq_handler);
+#else
+    if (irq_handler) {
+        irq_handler(&lp_data);
+    }
+#endif
 }
 
 #endif

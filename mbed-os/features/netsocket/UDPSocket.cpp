@@ -19,7 +19,6 @@
 #include "mbed_assert.h"
 
 UDPSocket::UDPSocket()
-    : _pending(0), _read_sem(0), _write_sem(0)
 {
 }
 
@@ -31,6 +30,12 @@ UDPSocket::~UDPSocket()
 nsapi_protocol_t UDPSocket::get_proto()
 {
     return NSAPI_UDP;
+}
+
+nsapi_error_t UDPSocket::connect(const SocketAddress &address)
+{
+    _remote_peer = address;
+    return NSAPI_ERROR_OK;
 }
 
 nsapi_size_or_error_t UDPSocket::sendto(const char *host, uint16_t port, const void *data, nsapi_size_t size)
@@ -52,6 +57,8 @@ nsapi_size_or_error_t UDPSocket::sendto(const SocketAddress &address, const void
     _lock.lock();
     nsapi_size_or_error_t ret;
 
+    _writers++;
+
     while (true) {
         if (!_socket) {
             ret = NSAPI_ERROR_NO_SOCKET;
@@ -64,30 +71,49 @@ nsapi_size_or_error_t UDPSocket::sendto(const SocketAddress &address, const void
             ret = sent;
             break;
         } else {
-            int32_t count;
+            uint32_t flag;
 
             // Release lock before blocking so other threads
             // accessing this object aren't blocked
             _lock.unlock();
-            count = _write_sem.wait(_timeout);
+            flag = _event_flag.wait_any(WRITE_FLAG, _timeout);
             _lock.lock();
 
-            if (count < 1) {
-                // Semaphore wait timed out so break out and return
+            if (flag & osFlagsError) {
+                // Timeout break
                 ret = NSAPI_ERROR_WOULD_BLOCK;
                 break;
             }
         }
     }
 
+    _writers--;
+    if (!_socket || !_writers) {
+        _event_flag.set(FINISHED_FLAG);
+    }
     _lock.unlock();
     return ret;
+}
+
+nsapi_size_or_error_t UDPSocket::send(const void *data, nsapi_size_t size)
+{
+    if (!_remote_peer) {
+        return NSAPI_ERROR_NO_ADDRESS;
+    }
+    return sendto(_remote_peer, data, size);
 }
 
 nsapi_size_or_error_t UDPSocket::recvfrom(SocketAddress *address, void *buffer, nsapi_size_t size)
 {
     _lock.lock();
     nsapi_size_or_error_t ret;
+    SocketAddress ignored;
+
+    if (!address) {
+        address = &ignored;
+    }
+
+    _readers++;
 
     while (true) {
         if (!_socket) {
@@ -97,37 +123,56 @@ nsapi_size_or_error_t UDPSocket::recvfrom(SocketAddress *address, void *buffer, 
 
         _pending = 0;
         nsapi_size_or_error_t recv = _stack->socket_recvfrom(_socket, address, buffer, size);
+
+        // Filter incomming packets using connected peer address
+        if (recv >= 0 && _remote_peer && _remote_peer != *address) {
+            continue;
+        }
+
+        // Non-blocking sockets always return. Blocking only returns when success or errors other than WOULD_BLOCK
         if ((0 == _timeout) || (NSAPI_ERROR_WOULD_BLOCK != recv)) {
             ret = recv;
             break;
         } else {
-            int32_t count;
+            uint32_t flag;
 
             // Release lock before blocking so other threads
             // accessing this object aren't blocked
             _lock.unlock();
-            count = _read_sem.wait(_timeout);
+            flag = _event_flag.wait_any(READ_FLAG, _timeout);
             _lock.lock();
 
-            if (count < 1) {
-                // Semaphore wait timed out so break out and return
+            if (flag & osFlagsError) {
+                // Timeout break
                 ret = NSAPI_ERROR_WOULD_BLOCK;
                 break;
             }
         }
     }
 
+    _readers--;
+    if (!_socket || !_readers) {
+        _event_flag.set(FINISHED_FLAG);
+    }
+
     _lock.unlock();
     return ret;
 }
 
-void UDPSocket::event()
+nsapi_size_or_error_t UDPSocket::recv(void *buffer, nsapi_size_t size)
 {
-    _write_sem.release();
-    _read_sem.release();
+    return recvfrom(NULL, buffer, size);
+}
 
-    _pending += 1;
-    if (_callback && _pending == 1) {
-        _callback();
+Socket *UDPSocket::accept(nsapi_error_t *error)
+{
+    if (error) {
+        *error = NSAPI_ERROR_UNSUPPORTED;
     }
+    return NULL;
+}
+
+nsapi_error_t UDPSocket::listen(int)
+{
+    return NSAPI_ERROR_UNSUPPORTED;
 }

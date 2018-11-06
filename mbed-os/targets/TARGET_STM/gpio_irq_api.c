@@ -27,7 +27,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *******************************************************************************
  */
-#include <stddef.h>
+#include <stdbool.h>
 #include "cmsis.h"
 #include "gpio_irq_api.h"
 #include "pinmap.h"
@@ -43,7 +43,7 @@
 typedef struct gpio_channel {
     uint32_t pin_mask;                   // bitmask representing which pins are configured for receiving interrupts
     uint32_t channel_ids[MAX_PIN_LINE];  // mbed "gpio_irq_t gpio_irq" field of instance
-    GPIO_TypeDef* channel_gpio[MAX_PIN_LINE]; // base address of gpio port group
+    GPIO_TypeDef *channel_gpio[MAX_PIN_LINE]; // base address of gpio port group
     uint32_t channel_pin[MAX_PIN_LINE];  // pin number in port group
 } gpio_channel_t;
 
@@ -90,18 +90,39 @@ static void handle_interrupt_in(uint32_t irq_index, uint32_t max_num_pin_line)
             if (__HAL_GPIO_EXTI_GET_FLAG(pin) != RESET) {
                 __HAL_GPIO_EXTI_CLEAR_FLAG(pin);
 
-                if (gpio_channel->channel_ids[gpio_idx] == 0)
+                if (gpio_channel->channel_ids[gpio_idx] == 0) {
                     continue;
-
-                // Check which edge has generated the irq
-                if ((gpio->IDR & pin) == 0) {
-                    irq_handler(gpio_channel->channel_ids[gpio_idx], IRQ_FALL);
-                } else {
-                    irq_handler(gpio_channel->channel_ids[gpio_idx], IRQ_RISE);
                 }
+
+                // Trying to discern which edge caused the IRQ
+                gpio_irq_event event = IRQ_NONE;
+                if (LL_EXTI_IsEnabledFallingTrig_0_31(pin) && !LL_EXTI_IsEnabledRisingTrig_0_31(pin)) {
+                    // Only the fall handler is active, so this must be a falling edge
+                    event = IRQ_FALL;
+                } else if (LL_EXTI_IsEnabledRisingTrig_0_31(pin) && !LL_EXTI_IsEnabledFallingTrig_0_31(pin)) {
+                    // Only the rise handler is active, so this must be a rising edge
+                    event = IRQ_RISE;
+                } else {
+                    // Ambiguous as to which edge caused the IRQ
+                    //
+                    // The state of the pin could/should indicate which edge
+                    // has occurred but this can go wrong if the IRQ caused a
+                    // transition from a low power mode. In some circumstances
+                    // only the trailing edge callback will be called.
+                    if ((gpio->IDR & pin) == 0) {
+                        event = IRQ_FALL;
+                    } else {
+                        event = IRQ_RISE;
+                    }
+                }
+
+                irq_handler(gpio_channel->channel_ids[gpio_idx], event);
+
+                return;
             }
         }
     }
+    error("Unexpected Spurious interrupt, index %d\r\n", irq_index);
 }
 
 
@@ -165,7 +186,9 @@ int gpio_irq_init(gpio_irq_t *obj, PinName pin, gpio_irq_handler handler, uint32
     gpio_channel_t *gpio_channel;
     uint32_t gpio_idx;
 
-    if (pin == NC) return -1;
+    if (pin == NC) {
+        return -1;
+    }
 
     /* Enable SYSCFG Clock */
     __HAL_RCC_SYSCFG_CLK_ENABLE();
@@ -245,27 +268,32 @@ void gpio_irq_free(gpio_irq_t *obj)
     uint32_t gpio_idx = pin_lines_desc[STM_PIN(obj->pin)].gpio_idx;
     gpio_channel_t *gpio_channel = &channels[obj->irq_index];
 
-    gpio_irq_disable(obj);
     gpio_channel->pin_mask &= ~(1 << gpio_idx);
     gpio_channel->channel_ids[gpio_idx] = 0;
     gpio_channel->channel_gpio[gpio_idx] = 0;
     gpio_channel->channel_pin[gpio_idx] = 0;
+    gpio_irq_disable(obj);
 }
 
 void gpio_irq_set(gpio_irq_t *obj, gpio_irq_event event, uint32_t enable)
 {
+    /*  Enable / Disable Edge triggered interrupt and store event */
     if (event == IRQ_RISE) {
         if (enable) {
             LL_EXTI_EnableRisingTrig_0_31(1 << STM_PIN(obj->pin));
+            obj->event |= IRQ_RISE;
         } else {
             LL_EXTI_DisableRisingTrig_0_31(1 << STM_PIN(obj->pin));
+            obj->event &= ~IRQ_RISE;
         }
     }
     if (event == IRQ_FALL) {
         if (enable) {
             LL_EXTI_EnableFallingTrig_0_31(1 << STM_PIN(obj->pin));
+            obj->event |= IRQ_FALL;
         } else {
             LL_EXTI_DisableFallingTrig_0_31(1 << STM_PIN(obj->pin));
+            obj->event &= ~IRQ_FALL;
         }
     }
 }
@@ -284,14 +312,33 @@ void gpio_irq_enable(gpio_irq_t *obj)
 
     LL_EXTI_EnableIT_0_31(1 << pin_index);
 
+    /* Restore previous edge interrupt configuration if applicable */
+    if (obj->event & IRQ_RISE) {
+        LL_EXTI_EnableRisingTrig_0_31(1 << STM_PIN(obj->pin));
+    }
+    if (obj->event & IRQ_FALL) {
+        LL_EXTI_EnableFallingTrig_0_31(1 << STM_PIN(obj->pin));
+    }
+
     NVIC_EnableIRQ(obj->irq_n);
 }
 
 void gpio_irq_disable(gpio_irq_t *obj)
 {
+    const uint32_t pin_index = STM_PIN(obj->pin);
+    const uint32_t gpio_idx = pin_lines_desc[pin_index].gpio_idx;
+    const uint32_t pin_mask = 1 << gpio_idx;
+    const uint32_t irq_index = pin_lines_desc[pin_index].irq_index;
+    const gpio_channel_t *const gpio_channel = &channels[irq_index];
+
     /* Clear EXTI line configuration */
-    LL_EXTI_DisableIT_0_31(1 << STM_PIN(obj->pin));
-    NVIC_DisableIRQ(obj->irq_n);
-    NVIC_ClearPendingIRQ(obj->irq_n);
-    obj->event = EDGE_NONE;
+    LL_EXTI_DisableRisingTrig_0_31(1 << pin_index);
+    LL_EXTI_DisableFallingTrig_0_31(1 << pin_index);
+    LL_EXTI_DisableIT_0_31(1 << pin_index);
+
+    const bool no_more_pins_on_vector = (gpio_channel->pin_mask & ~pin_mask) == 0;
+    if (no_more_pins_on_vector) {
+        NVIC_DisableIRQ(obj->irq_n);
+        NVIC_ClearPendingIRQ(obj->irq_n);
+    }
 }

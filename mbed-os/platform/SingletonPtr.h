@@ -1,6 +1,10 @@
 
 /** \addtogroup platform */
 /** @{*/
+/**
+ * \defgroup platform_SingletonPtr SingletonPtr class
+ * @{
+ */
 /* mbed Microcontroller Library
  * Copyright (c) 2006-2013 ARM Limited
  *
@@ -39,6 +43,10 @@ extern osMutexId_t singleton_mutex_id;
 inline static void singleton_lock(void)
 {
 #ifdef MBED_CONF_RTOS_PRESENT
+    if (!singleton_mutex_id) {
+        // RTOS has not booted yet so no mutex is needed
+        return;
+    }
     osMutexAcquire(singleton_mutex_id, osWaitForever);
 #endif
 }
@@ -52,10 +60,13 @@ inline static void singleton_lock(void)
 inline static void singleton_unlock(void)
 {
 #ifdef MBED_CONF_RTOS_PRESENT
-    osMutexRelease (singleton_mutex_id);
+    if (!singleton_mutex_id) {
+        // RTOS has not booted yet so no mutex is needed
+        return;
+    }
+    osMutexRelease(singleton_mutex_id);
 #endif
 }
-/** @}*/
 
 /** Utility class for creating an using a singleton
  *
@@ -68,7 +79,6 @@ inline static void singleton_unlock(void)
  * @note: This class is lazily initialized on first use.
  * This class is a POD type so if it is not used it will
  * be garbage collected.
- * @ingroup platform
  */
 template <class T>
 struct SingletonPtr {
@@ -78,7 +88,8 @@ struct SingletonPtr {
      * @returns
      *   A pointer to the singleton
      */
-    T* get() {
+    T *get()
+    {
         if (NULL == _ptr) {
             singleton_lock();
             if (NULL == _ptr) {
@@ -97,7 +108,8 @@ struct SingletonPtr {
      * @returns
      *   A pointer to the singleton
      */
-    T* operator->() {
+    T *operator->()
+    {
         return get();
     }
 
@@ -108,4 +120,6 @@ struct SingletonPtr {
 };
 
 #endif
+/**@}*/
 
+/**@}*/

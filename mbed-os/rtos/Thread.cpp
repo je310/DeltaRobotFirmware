@@ -20,52 +20,75 @@
  * SOFTWARE.
  */
 #include "rtos/Thread.h"
+#include "rtos/ThisThread.h"
 
 #include "mbed.h"
 #include "rtos/rtos_idle.h"
+#include "rtos/rtos_handlers.h"
+#include "mbed_assert.h"
 
-static void (*terminate_hook)(osThreadId_t id) = 0;
-extern "C" void thread_terminate_hook(osThreadId_t id)
-{
-    if (terminate_hook != (void (*)(osThreadId_t))NULL) {
-        terminate_hook(id);
-    }
-}
+#define ALIGN_UP(pos, align) ((pos) % (align) ? (pos) +  ((align) - (pos) % (align)) : (pos))
+MBED_STATIC_ASSERT(ALIGN_UP(0, 8) == 0, "ALIGN_UP macro error");
+MBED_STATIC_ASSERT(ALIGN_UP(1, 8) == 8, "ALIGN_UP macro error");
+
+#define ALIGN_DOWN(pos, align) ((pos) - ((pos) % (align)))
+MBED_STATIC_ASSERT(ALIGN_DOWN(7, 8) == 0, "ALIGN_DOWN macro error");
+MBED_STATIC_ASSERT(ALIGN_DOWN(8, 8) == 8, "ALIGN_DOWN macro error");
 
 namespace rtos {
 
-void Thread::constructor(osPriority priority,
-        uint32_t stack_size, unsigned char *stack_mem, const char *name) {
+#ifndef MBED_TZ_DEFAULT_ACCESS
+#define MBED_TZ_DEFAULT_ACCESS   0
+#endif
+
+void Thread::constructor(uint32_t tz_module, osPriority priority,
+                         uint32_t stack_size, unsigned char *stack_mem, const char *name)
+{
+
+    const uintptr_t unaligned_mem = reinterpret_cast<uintptr_t>(stack_mem);
+    const uintptr_t aligned_mem = ALIGN_UP(unaligned_mem, 8);
+    const uint32_t offset = aligned_mem - unaligned_mem;
+    const uint32_t aligned_size = ALIGN_DOWN(stack_size - offset, 8);
+
     _tid = 0;
     _dynamic_stack = (stack_mem == NULL);
     _finished = false;
     memset(&_obj_mem, 0, sizeof(_obj_mem));
     memset(&_attr, 0, sizeof(_attr));
     _attr.priority = priority;
-    _attr.stack_size = stack_size;
+    _attr.stack_size = aligned_size;
     _attr.name = name ? name : "application_unnamed_thread";
-    _attr.stack_mem = (uint32_t*)stack_mem;
+    _attr.stack_mem = reinterpret_cast<uint32_t *>(aligned_mem);
+    _attr.tz_module = tz_module;
+}
+
+void Thread::constructor(osPriority priority,
+                         uint32_t stack_size, unsigned char *stack_mem, const char *name)
+{
+    constructor(MBED_TZ_DEFAULT_ACCESS, priority, stack_size, stack_mem, name);
 }
 
 void Thread::constructor(Callback<void()> task,
-        osPriority priority, uint32_t stack_size, unsigned char *stack_mem, const char *name) {
-    constructor(priority, stack_size, stack_mem, name);
+                         osPriority priority, uint32_t stack_size, unsigned char *stack_mem, const char *name)
+{
+    constructor(MBED_TZ_DEFAULT_ACCESS, priority, stack_size, stack_mem, name);
 
     switch (start(task)) {
         case osErrorResource:
-            error("OS ran out of threads!\n");
+            MBED_ERROR1(MBED_MAKE_ERROR(MBED_MODULE_PLATFORM, MBED_ERROR_CODE_OUT_OF_RESOURCES), "OS ran out of threads!\n", task);
             break;
         case osErrorParameter:
-            error("Thread already running!\n");
+            MBED_ERROR1(MBED_MAKE_ERROR(MBED_MODULE_PLATFORM, MBED_ERROR_CODE_ALREADY_IN_USE), "Thread already running!\n", task);
             break;
         case osErrorNoMemory:
-            error("Error allocating the stack memory\n");
+            MBED_ERROR1(MBED_MAKE_ERROR(MBED_MODULE_PLATFORM, MBED_ERROR_CODE_OUT_OF_MEMORY), "Error allocating the stack memory\n", task);
         default:
             break;
     }
 }
 
-osStatus Thread::start(Callback<void()> task) {
+osStatus Thread::start(Callback<void()> task)
+{
     _mutex.lock();
 
     if ((_tid != 0) || _finished) {
@@ -74,13 +97,13 @@ osStatus Thread::start(Callback<void()> task) {
     }
 
     if (_attr.stack_mem == NULL) {
-        _attr.stack_mem = new uint32_t[_attr.stack_size/sizeof(uint32_t)];
+        _attr.stack_mem = new uint32_t[_attr.stack_size / sizeof(uint32_t)];
         MBED_ASSERT(_attr.stack_mem != NULL);
     }
 
     //Fill the stack with a magic word for maximum usage checking
     for (uint32_t i = 0; i < (_attr.stack_size / sizeof(uint32_t)); i++) {
-        ((uint32_t *)_attr.stack_mem)[i] = 0xE25A2EA5;
+        ((uint32_t *)_attr.stack_mem)[i] = osRtxStackMagicWord;
     }
 
     memset(&_obj_mem, 0, sizeof(_obj_mem));
@@ -90,8 +113,8 @@ osStatus Thread::start(Callback<void()> task) {
     _tid = osThreadNew(Thread::_thunk, this, &_attr);
     if (_tid == NULL) {
         if (_dynamic_stack) {
-            delete[] (uint32_t *)(_attr.stack_mem);
-            _attr.stack_mem = (uint32_t*)NULL;
+            delete[](uint32_t *)(_attr.stack_mem);
+            _attr.stack_mem = (uint32_t *)NULL;
         }
         _mutex.unlock();
         _join_sem.release();
@@ -102,7 +125,8 @@ osStatus Thread::start(Callback<void()> task) {
     return osOK;
 }
 
-osStatus Thread::terminate() {
+osStatus Thread::terminate()
+{
     osStatus_t ret = osOK;
     _mutex.lock();
 
@@ -114,13 +138,18 @@ osStatus Thread::terminate() {
     _tid = (osThreadId_t)NULL;
     if (!_finished) {
         _finished = true;
-        ret = osThreadTerminate(local_id);
+        // if local_id == 0 Thread was not started in first place
+        // and does not have to be terminated
+        if (local_id != 0) {
+            ret = osThreadTerminate(local_id);
+        }
     }
     _mutex.unlock();
     return ret;
 }
 
-osStatus Thread::join() {
+osStatus Thread::join()
+{
     int32_t ret = _join_sem.wait();
     if (ret < 0) {
         return osError;
@@ -138,7 +167,8 @@ osStatus Thread::join() {
     return osOK;
 }
 
-osStatus Thread::set_priority(osPriority priority) {
+osStatus Thread::set_priority(osPriority priority)
+{
     osStatus_t ret;
     _mutex.lock();
 
@@ -148,7 +178,8 @@ osStatus Thread::set_priority(osPriority priority) {
     return ret;
 }
 
-osPriority Thread::get_priority() {
+osPriority Thread::get_priority() const
+{
     osPriority_t ret;
     _mutex.lock();
 
@@ -158,28 +189,37 @@ osPriority Thread::get_priority() {
     return ret;
 }
 
-int32_t Thread::signal_set(int32_t flags) {
+uint32_t Thread::flags_set(uint32_t flags)
+{
+    flags = osThreadFlagsSet(_tid, flags);
+    MBED_ASSERT(!(flags & osFlagsError));
+    return flags;
+}
+
+int32_t Thread::signal_set(int32_t flags)
+{
     return osThreadFlagsSet(_tid, flags);
 }
 
-int32_t Thread::signal_clr(int32_t flags) {
-    return osThreadFlagsClear(flags);
-}
-
-Thread::State Thread::get_state() {
+Thread::State Thread::get_state() const
+{
     uint8_t state = osThreadTerminated;
 
     _mutex.lock();
 
     if (_tid != NULL) {
+#if defined(MBED_OS_BACKEND_RTX5)
         state = _obj_mem.state;
+#else
+        state = osThreadGetState(_tid);
+#endif
     }
 
     _mutex.unlock();
 
     State user_state;
 
-    switch(state) {
+    switch (state) {
         case osThreadInactive:
             user_state = Inactive;
             break;
@@ -189,6 +229,7 @@ Thread::State Thread::get_state() {
         case osThreadRunning:
             user_state = Running;
             break;
+#if defined(MBED_OS_BACKEND_RTX5)
         case osRtxThreadWaitingDelay:
             user_state = WaitingDelay;
             break;
@@ -216,6 +257,7 @@ Thread::State Thread::get_state() {
         case osRtxThreadWaitingMessagePut:
             user_state = WaitingMessagePut;
             break;
+#endif
         case osThreadTerminated:
         default:
             user_state = Deleted;
@@ -225,66 +267,90 @@ Thread::State Thread::get_state() {
     return user_state;
 }
 
-uint32_t Thread::stack_size() {
+uint32_t Thread::stack_size() const
+{
     uint32_t size = 0;
     _mutex.lock();
 
     if (_tid != NULL) {
-        os_thread_t *thread = (os_thread_t *)_tid;
-        size = thread->stack_size;
+        size = osThreadGetStackSize(_tid);
     }
 
     _mutex.unlock();
     return size;
 }
 
-uint32_t Thread::free_stack() {
+uint32_t Thread::free_stack() const
+{
     uint32_t size = 0;
     _mutex.lock();
 
+#if defined(MBED_OS_BACKEND_RTX5)
     if (_tid != NULL) {
-        os_thread_t *thread = (os_thread_t *)_tid;
-        size = (uint32_t)thread->stack_mem - thread->sp;
+        mbed_rtos_storage_thread_t *thread = (mbed_rtos_storage_thread_t *)_tid;
+        size = (uint32_t)thread->sp - (uint32_t)thread->stack_mem;
     }
+#endif
 
     _mutex.unlock();
     return size;
 }
 
-uint32_t Thread::used_stack() {
+uint32_t Thread::used_stack() const
+{
     uint32_t size = 0;
     _mutex.lock();
 
+#if defined(MBED_OS_BACKEND_RTX5)
     if (_tid != NULL) {
-        os_thread_t *thread = (os_thread_t *)_tid;
+        mbed_rtos_storage_thread_t *thread = (mbed_rtos_storage_thread_t *)_tid;
         size = ((uint32_t)thread->stack_mem + thread->stack_size) - thread->sp;
     }
+#endif
 
     _mutex.unlock();
     return size;
 }
 
-uint32_t Thread::max_stack() {
+uint32_t Thread::max_stack() const
+{
     uint32_t size = 0;
     _mutex.lock();
 
     if (_tid != NULL) {
-        os_thread_t *thread = (os_thread_t *)_tid;
+#if defined(MBED_OS_BACKEND_RTX5)
+        mbed_rtos_storage_thread_t *thread = (mbed_rtos_storage_thread_t *)_tid;
         uint32_t high_mark = 0;
-        while (((uint32_t *)(thread->stack_mem))[high_mark] == 0xE25A2EA5)
+        while ((((uint32_t *)(thread->stack_mem))[high_mark] == osRtxStackMagicWord) || (((uint32_t *)(thread->stack_mem))[high_mark] == osRtxStackFillPattern)) {
             high_mark++;
+        }
         size = thread->stack_size - (high_mark * sizeof(uint32_t));
+#else
+        size = osThreadGetStackSize(_tid) - osThreadGetStackSpace(_tid);
+#endif
     }
 
     _mutex.unlock();
     return size;
 }
 
-const char *Thread::get_name() {
+const char *Thread::get_name() const
+{
     return _attr.name;
 }
 
-osEvent Thread::signal_wait(int32_t signals, uint32_t millisec) {
+osThreadId_t Thread::get_id() const
+{
+    return _tid;
+}
+
+int32_t Thread::signal_clr(int32_t flags)
+{
+    return osThreadFlagsClear(flags);
+}
+
+osEvent Thread::signal_wait(int32_t signals, uint32_t millisec)
+{
     uint32_t res;
     osEvent evt;
     uint32_t options = osFlagsWaitAll;
@@ -309,45 +375,59 @@ osEvent Thread::signal_wait(int32_t signals, uint32_t millisec) {
                 evt.status = (osStatus)osErrorValue;
                 break;
         }
+    } else {
+        evt.status = (osStatus)osEventSignal;
+        evt.value.signals = res;
     }
-    evt.status = (osStatus)osEventSignal;
-    evt.value.signals = res;
 
     return evt;
 }
 
-osStatus Thread::wait(uint32_t millisec) {
-    return osDelay(millisec);
+osStatus Thread::wait(uint32_t millisec)
+{
+    ThisThread::sleep_for(millisec);
+    return osOK;
 }
 
-osStatus Thread::yield() {
+osStatus Thread::wait_until(uint64_t millisec)
+{
+    ThisThread::sleep_until(millisec);
+    return osOK;
+}
+
+osStatus Thread::yield()
+{
     return osThreadYield();
 }
 
-osThreadId Thread::gettid() {
+osThreadId Thread::gettid()
+{
     return osThreadGetId();
 }
 
-void Thread::attach_idle_hook(void (*fptr)(void)) {
+void Thread::attach_idle_hook(void (*fptr)(void))
+{
     rtos_attach_idle_hook(fptr);
 }
 
-void Thread::attach_terminate_hook(void (*fptr)(osThreadId_t id)) {
-    terminate_hook = fptr;
+void Thread::attach_terminate_hook(void (*fptr)(osThreadId_t id))
+{
+    rtos_attach_thread_terminate_hook(fptr);
 }
 
-Thread::~Thread() {
+Thread::~Thread()
+{
     // terminate is thread safe
     terminate();
     if (_dynamic_stack) {
-        delete[] (uint32_t*)(_attr.stack_mem);
-        _attr.stack_mem = (uint32_t*)NULL;
+        delete[](uint32_t *)(_attr.stack_mem);
+        _attr.stack_mem = (uint32_t *)NULL;
     }
 }
 
-void Thread::_thunk(void * thread_ptr)
+void Thread::_thunk(void *thread_ptr)
 {
-    Thread *t = (Thread*)thread_ptr;
+    Thread *t = (Thread *)thread_ptr;
     t->_task();
     t->_mutex.lock();
     t->_tid = (osThreadId)NULL;

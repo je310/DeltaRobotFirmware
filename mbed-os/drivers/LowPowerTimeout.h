@@ -18,10 +18,11 @@
 
 #include "platform/platform.h"
 
-#if defined (DEVICE_LOWPOWERTIMER) || defined(DOXYGEN_ONLY)
+#if defined (DEVICE_LPTICKER) || defined(DOXYGEN_ONLY)
 
 #include "hal/lp_ticker_api.h"
 #include "drivers/LowPowerTicker.h"
+#include "platform/NonCopyable.h"
 
 namespace mbed {
 /** \addtogroup drivers */
@@ -31,10 +32,11 @@ namespace mbed {
  * @note Synchronization level: Interrupt safe
  * @ingroup drivers
  */
-class LowPowerTimeout : public LowPowerTicker {
+class LowPowerTimeout : public LowPowerTicker, private NonCopyable<LowPowerTimeout> {
 
 private:
-    virtual void handler(void) {
+    virtual void handler(void)
+    {
         _function.call();
     }
 };

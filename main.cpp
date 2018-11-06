@@ -2,7 +2,7 @@
 //includes. 
 #include "mbed.h"
 #include "odrive.h"
-#include "lwip-interface/EthernetInterface.h"
+#include "EthernetInterface.h"
 #include "comms.h"
 #include <string>
 #include "calibration.h"
@@ -41,7 +41,7 @@ Timer debugTimer;
 
 Thread transmitterT(osPriorityNormal, 2 * 1024,NULL, "transmitterThread");
 Thread receiverT(osPriorityNormal, 32 * 1024,NULL, "receiverThread");
-Thread odriveThread(osPriorityNormal, 16 * 1024,NULL, "OdriveThread");
+Thread odriveThread(osPriorityBelowNormal, 16 * 1024,NULL, "OdriveThread");
 Thread accelT(osPriorityNormal, 32 * 1024,NULL, "AccelThread");
 Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
 Thread ESKFT(osPriorityNormal, 32 * 1024,NULL, "ESKFThread") /* 32K stack */;
@@ -102,6 +102,14 @@ volatile int newData = 0;
 rosTime timeMes;
 rosTime lastIMUTime;
 int accelPending = 0;
+
+
+typedef struct{
+    Vector3f accel;
+    Vector3f gyro;
+    rosTime stamp;
+} imuMail;
+Mail<imuMail, 16> mail_box;
 
 
 void transmit()
@@ -340,7 +348,7 @@ void runOdrive()
             yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
     while(*A.homeSwitch_||*B.homeSwitch_ || *C.homeSwitch_) {
-       Thread::wait(5); 
+       Thread::wait(200); 
        batteryV = OD1.readBattery();
        } // wait till user
     buffered_pc.printf("finding index\r\n");
@@ -419,8 +427,8 @@ void runOdrive()
                 kin.goToWorldPos(here,target);
             }
     }
-        //Thread::signal_wait(0x1);
-        Thread::yield();
+        Thread::signal_wait(0x1);
+        //Thread::yield();
         if(loopCounter % 200000 == 0) {
             batteryV = OD1.readBattery();
         }
@@ -430,11 +438,12 @@ void runOdrive()
 
 float detlaTimu = 0.001;
 void accelInterrupt(){
-            newData = 1;
-            timeMes = timeTracker.getTime();
-            // if(!accelPending){
-            //     accelT.signal_set(0x1);
-            // }
+            //newData = 1;
+            
+             if(!accelPending){
+                timeMes = timeTracker.getTime();
+                 accelT.signal_set(0x1);
+             }
 
 }
 
@@ -455,24 +464,20 @@ void accelThread()
     float sum = 0;
     uint32_t sumCount = 0;
     int dataCount = -1 ;
-    //rotation mat for the accel, to correct for mounting, result should be ros convention. 
-    Eigen::Matrix<float, 3,3> rotMat;
-    rotMat <<   -1, 0, 0
-                ,0, 0,-1
-                ,0,-1, 0;
+
     ImuData dataOut; 
 
     SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
     ImuDataChunk chunk;
     chunk.type = imuDataChunk;
-    float degToRad = M_PI/180.0;
+    
     Timer debugT;
     debugT.start();
     while(1) {
         //Thread::wait(200);
 
-        if(newData){
-            newData = 0;
+        //if(newData){
+            //newData = 0;
             imuDataBuffer.time.seconds = timeMes.seconds;
             imuDataBuffer.time.nSeconds = timeMes.nSeconds;
             dataCount ++;
@@ -482,11 +487,7 @@ void accelThread()
             mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
             mpu.getGres();
             
-            accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
 
-            accel = (GRAVITY * rotMat * accel).eval();
-            gyro <<  (float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
-            gyro = (degToRad * rotMat * gyro).eval();
 
                         // Now we'll calculate the accleration value into actual g's
 
@@ -508,6 +509,13 @@ void accelThread()
             imuToSend = 1;
             detlaTimu = timeTracker.difference(lastIMUTime, timeMes);
             lastIMUTime = timeMes;
+            imuMail *mail = mail_box.alloc();
+            mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
+
+            mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+
+            mail->stamp = timeMes;
+            mail_box.put(mail);
             ESKFT.signal_set(0x1);
             if(dataCount % 2000 ==0){
                 float fps = 1000000 * dataCount / debugT.read_us();
@@ -515,10 +523,10 @@ void accelThread()
                 dataCount = 0;
                 debugT.reset();
             }
-        }
-        Thread::yield();
+        //}
+        //Thread::yield();
         accelPending = 0;
-        //Thread::signal_wait(0x1);
+        Thread::signal_wait(0x1);
         accelPending = 1;
 
     }
@@ -576,15 +584,26 @@ void ESKFThread(){
     //loop waiting for data to come in
     int imuCount = 0;
     int mocapCount = 0;
-    
+    float degToRad = M_PI/180.0;
+        //rotation mat for the accel, to correct for mounting, result should be ros convention. 
+    Eigen::Matrix<float, 3,3> rotMat;
+    rotMat <<   -1, 0, 0
+                ,0, 0,-1
+                ,0,-1, 0;
+
+
 
     while(1){
         if(newMocapLocation==1){
             newMocapLocation = 0;
             Quaternionf quat(mocapLocation.quat.w,mocapLocation.quat.x,mocapLocation.quat.y,mocapLocation.quat.z);
             Vector3f pos(mocapLocation.pos.x,mocapLocation.pos.y,mocapLocation.pos.z);
+            
             eskfPTR->measurePos(pos,SQ(sigma_mocap_pos)*I_3);
+            Thread::yield();
             eskfPTR->measureQuat(quat,SQ(sigma_mocap_rot)*I_3);
+            Thread::yield();
+
             mocapCount ++;
             if(mocapCount == 200){
 
@@ -594,9 +613,22 @@ void ESKFThread(){
                 lastMocapT = debugTimer.read_us();
             }
         }
-        if(imuToSend==1){
+        //if(imuToSend==1){
+        
+            
+        while(!mail_box.empty()){
+            osEvent evt = mail_box.get();
+            if(evt.status == osEventMail){
+            imuMail *mail = (imuMail*)evt.value.p;
             imuToSend = 0;
-                eskfPTR->predictIMU(accel,gyro,0.001f);
+                        
+
+            Vector3f accelLocal = GRAVITY * rotMat * mail->accel;
+            
+            Vector3f gyroLocal = degToRad * rotMat * mail->gyro;
+            mail_box.free(mail);
+
+                eskfPTR->predictIMU(accelLocal,gyroLocal,0.001f);
 
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
@@ -607,9 +639,11 @@ void ESKFThread(){
                 imuCount = 0;
                 lastIMUT = debugTimer.read_us();
             }
+            Thread::yield();
+            }
         }
-        Thread::yield();
-        //Thread::signal_wait(0x1);
+        //Thread::yield();
+        Thread::signal_wait(0x1);
     }
 
 

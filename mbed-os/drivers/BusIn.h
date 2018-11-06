@@ -19,6 +19,7 @@
 #include "platform/platform.h"
 #include "drivers/DigitalIn.h"
 #include "platform/PlatformMutex.h"
+#include "platform/NonCopyable.h"
 
 namespace mbed {
 /** \addtogroup drivers */
@@ -28,7 +29,7 @@ namespace mbed {
  * @note Synchronization level: Thread safe
  * @ingroup drivers
  */
-class BusIn {
+class BusIn : private NonCopyable<BusIn> {
 
 public:
     /* Group: Configuration Methods */
@@ -61,12 +62,12 @@ public:
           PinName p8 = NC, PinName p9 = NC, PinName p10 = NC, PinName p11 = NC,
           PinName p12 = NC, PinName p13 = NC, PinName p14 = NC, PinName p15 = NC);
 
-    
+
     /** Create an BusIn, connected to the specified pins
      *
      * @param pins An array of pins to connect to bus bit
      */
-     BusIn(PinName pins[16]);
+    BusIn(PinName pins[16]);
 
     virtual ~BusIn();
 
@@ -89,7 +90,8 @@ public:
      *  @returns
      *    Binary mask of connected pins
      */
-    int mask() {
+    int mask()
+    {
         // No lock needed since _nc_mask is not modified outside the constructor
         return _nc_mask;
     }
@@ -102,10 +104,10 @@ public:
     /** Access to particular bit in random-iterator fashion
      * @param index  Position of bit
      */
-    DigitalIn & operator[] (int index);
+    DigitalIn &operator[](int index);
 
 protected:
-    DigitalIn* _pin[16];
+    DigitalIn *_pin[16];
 
     /* Mask of bus's NC pins
      * If bit[n] is set to 1 - pin is connected
@@ -115,12 +117,9 @@ protected:
 
     PlatformMutex _mutex;
 
-    /* disallow copy constructor and assignment operators */
 private:
     virtual void lock();
     virtual void unlock();
-    BusIn(const BusIn&);
-    BusIn & operator = (const BusIn&);
 };
 
 } // namespace mbed

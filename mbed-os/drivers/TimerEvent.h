@@ -18,6 +18,7 @@
 
 #include "hal/ticker_api.h"
 #include "hal/us_ticker_api.h"
+#include "platform/NonCopyable.h"
 
 namespace mbed {
 /** \addtogroup drivers */
@@ -27,7 +28,7 @@ namespace mbed {
  * @note Synchronization level: Interrupt safe
  * @ingroup drivers
  */
-class TimerEvent {
+class TimerEvent : private NonCopyable<TimerEvent> {
 public:
     TimerEvent();
     TimerEvent(const ticker_data_t *data);
@@ -46,13 +47,31 @@ protected:
     // The handler called to service the timer event of the derived class
     virtual void handler() = 0;
 
-    // insert relative timestamp in to linked list
+    /** Set relative timestamp of the internal event.
+     * @param   timestamp   event's us timestamp
+     *
+     * @warning
+     * Do not insert more than one timestamp.
+     * The same @a event object is used for every @a insert/insert_absolute call.
+     *
+     * @warning
+     * Ticker's present timestamp is used for reference. For timestamps
+     * from the past the event is scheduled after ticker's overflow.
+     * For reference @see convert_timestamp
+     */
     void insert(timestamp_t timestamp);
 
-    // insert absolute timestamp into linked list
+    /** Set absolute timestamp of the internal event.
+     * @param   timestamp   event's us timestamp
+     *
+     * @warning
+     * Do not insert more than one timestamp.
+     * The same @a event object is used for every @a insert/insert_absolute call.
+     */
     void insert_absolute(us_timestamp_t timestamp);
 
-    // remove from linked list, if in it
+    /** Remove timestamp.
+     */
     void remove();
 
     ticker_event_t event;

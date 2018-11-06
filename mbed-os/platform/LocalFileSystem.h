@@ -22,19 +22,23 @@
 
 #include "platform/FileSystemLike.h"
 #include "platform/PlatformMutex.h"
+#include "platform/NonCopyable.h"
 
 namespace mbed {
 /** \addtogroup platform */
 /** @{*/
+/**
+ * \defgroup platform_LocalFileSystem LocalFileSystem functions
+ * @{
+ */
 
-FILEHANDLE local_file_open(const char* name, int flags);
-/** @}*/
+FILEHANDLE local_file_open(const char *name, int flags);
 
 /**
  * @class LocalFileHandle
  * @ingroup platform
  */
-class LocalFileHandle : public FileHandle {
+class LocalFileHandle : public FileHandle, private NonCopyable<LocalFileHandle> {
 
 public:
     LocalFileHandle(FILEHANDLE fh);
@@ -98,11 +102,12 @@ protected:
  *  not exit, you will need to hold down reset on the mbed Microcontroller to be able to see the drive again!
  * @ingroup platform
  */
-class LocalFileSystem : public FileSystemLike {
+class LocalFileSystem : public FileSystemLike, private NonCopyable<LocalFileSystem> {
     // No modifiable state
 
 public:
-    LocalFileSystem(const char* n) : FileSystemLike(n) {
+    LocalFileSystem(const char *n) : FileSystemLike(n)
+    {
 
     }
 
@@ -110,6 +115,10 @@ public:
     virtual int open(DirHandle **dir, const char *name);
     virtual int remove(const char *filename);
 };
+
+/**@}*/
+
+/**@}*/
 
 } // namespace mbed
 

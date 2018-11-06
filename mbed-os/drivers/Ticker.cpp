@@ -22,14 +22,21 @@
 
 namespace mbed {
 
-void Ticker::detach() {
+void Ticker::detach()
+{
     core_util_critical_section_enter();
     remove();
+    // unlocked only if we were attached (we locked it) and this is not low power ticker
+    if (_function && _lock_deepsleep) {
+        sleep_manager_unlock_deep_sleep();
+    }
+
     _function = 0;
     core_util_critical_section_exit();
 }
 
-void Ticker::setup(us_timestamp_t t) {
+void Ticker::setup(us_timestamp_t t)
+{
     core_util_critical_section_enter();
     remove();
     _delay = t;
@@ -37,9 +44,12 @@ void Ticker::setup(us_timestamp_t t) {
     core_util_critical_section_exit();
 }
 
-void Ticker::handler() {
+void Ticker::handler()
+{
     insert_absolute(event.timestamp + _delay);
-    _function();
+    if (_function) {
+        _function();
+    }
 }
 
 } // namespace mbed

@@ -22,25 +22,32 @@
 #include "hal/us_ticker_api.h"
 #include "rtos/rtos.h"
 #include "platform/mbed_critical.h"
+#include "platform/mbed_power_mgmt.h"
 
-void wait(float s) {
+void wait(float s)
+{
     wait_us(s * 1000000.0f);
 }
 
-void wait_ms(int ms) {
+void wait_ms(int ms)
+{
     wait_us(ms * 1000);
 }
 
-void wait_us(int us) {
-    uint32_t start = us_ticker_read();
-    // Use the RTOS to wait for millisecond delays if possible
-    int ms = us / 1000;
-    if ((ms > 0) && core_util_are_interrupts_enabled()) {
-        Thread::wait((uint32_t)ms);
+void wait_us(int us)
+{
+    const ticker_data_t *const ticker = get_us_ticker_data();
+
+    uint32_t start = ticker_read(ticker);
+    if ((us >= 1000) && core_util_are_interrupts_enabled()) {
+        // Use the RTOS to wait for millisecond delays if possible
+        sleep_manager_lock_deep_sleep();
+        Thread::wait((uint32_t)us / 1000);
+        sleep_manager_unlock_deep_sleep();
     }
     // Use busy waiting for sub-millisecond delays, or for the whole
     // interval if interrupts are not enabled
-    while ((us_ticker_read() - start) < (uint32_t)us);
+    while ((ticker_read(ticker) - start) < (uint32_t)us);
 }
 
 #endif // #if MBED_CONF_RTOS_PRESENT

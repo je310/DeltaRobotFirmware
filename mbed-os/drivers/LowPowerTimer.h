@@ -18,8 +18,9 @@
 
 #include "platform/platform.h"
 #include "drivers/Timer.h"
+#include "platform/NonCopyable.h"
 
-#if defined (DEVICE_LOWPOWERTIMER) || defined(DOXYGEN_ONLY)
+#if defined (DEVICE_LPTICKER) || defined(DOXYGEN_ONLY)
 
 #include "hal/lp_ticker_api.h"
 
@@ -31,10 +32,11 @@ namespace mbed {
  * @note Synchronization level: Interrupt safe
  * @ingroup drivers
  */
-class LowPowerTimer : public Timer {
+class LowPowerTimer : public Timer, private NonCopyable<LowPowerTimer> {
 
 public:
-    LowPowerTimer() : Timer(get_lp_ticker_data()) {
+    LowPowerTimer() : Timer(get_lp_ticker_data())
+    {
     }
 
 };
