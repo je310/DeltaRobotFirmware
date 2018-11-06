@@ -147,6 +147,7 @@ void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f target
         goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
         yawAx->setAngle(180*yawAng/3.14);
         pitchAx->setAngle(180*pitchAng/3.14);
+        //buffered_pc.printf("kin x y z %f %f %f",kinTrans[0]*1000,kinTrans[1]*1000,kinTrans[2]*1000);
     }
     else{
         // here we instead clip the result to the allowable kinematics.
@@ -154,6 +155,7 @@ void Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f target
         centreToTarget = kinTrans - centre;
         kinTrans = centreToTarget.normalized()*range + centre;
         goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
+        //buffered_pc.printf("kin x y z %f %f %f",kinTrans[0]*1000,kinTrans[1]*1000,kinTrans[2]*1000);
         yawAx->setAngle(180*yawAng/3.14);
         pitchAx->setAngle(180*pitchAng/3.14);
     }
@@ -331,6 +333,7 @@ int Kinematics::goToPos(float x, float y, float z)
     DV.phi1 = (DV.phi1/180)*pi;
     DV.phi2 = (DV.phi2/180)*pi;
     DV.phi3 = (DV.phi3/180)*pi;
+    //buffered_pc.printf("a b c error %f %f %f %d" , DV.phi1,DV.phi2,DV.phi3, error);
     if(error == 0 ) {
         A->goAngle(DV.phi1);
         B->goAngle(DV.phi2);

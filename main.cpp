@@ -424,6 +424,8 @@ void runOdrive()
                 }
                 Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
                 Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
+                //buffered_pc.printf(" here x y z %f %f %f\r\n",eskfPTR->getPos()[0],eskfPTR->getPos()[1],eskfPTR->getPos()[2] );
+                //buffered_pc.printf(" hereQ w x y z %f %f %f %f\r\n",eskfPTR->getQuat().coeffs()[0],eskfPTR->getQuat().coeffs()[1],eskfPTR->getQuat().coeffs()[2],eskfPTR->getQuat().coeffs()[2]  );
                 kin.goToWorldPos(here,target);
             }
     }
@@ -608,9 +610,11 @@ void ESKFThread(){
             if(mocapCount == 200){
 
                 float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
-                //buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
+                buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
                 mocapCount = 0;
                 lastMocapT = debugTimer.read_us();
+                Vector3f posD = eskfPTR->getPos();
+                    buffered_pc.printf(" position x y z %f %f %f\r\n",posD[0],posD[1],posD[2] );
             }
         }
         //if(imuToSend==1){
@@ -633,9 +637,9 @@ void ESKFThread(){
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
                         imuCount ++;
-            if(imuCount == 200){
+            if(imuCount == 2000){
                 float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
-                //buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
+                buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
                 imuCount = 0;
                 lastIMUT = debugTimer.read_us();
             }
