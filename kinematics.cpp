@@ -325,9 +325,9 @@ int Kinematics::goToPos(float x, float y, float z)
     // y is the right hand rule taking these two. 
     DeltaKinematics<float>::DeltaVector DV = {-y,-z,-x,0,0,0};
     int  error = DK->CalculateIpk(&DV, 1);
-    float xc,yc,zc;
-    delta_calcForward(DV.phi1,DV.phi2,DV.phi3,xc,yc,zc);
-    error += DK->CalculateFpk(&DV, 1);
+    // float xc,yc,zc;
+    // delta_calcForward(DV.phi1,DV.phi2,DV.phi3,xc,yc,zc);
+    // error += DK->CalculateFpk(&DV, 1);
     DV.phi1 = (DV.phi1/180)*pi;
     DV.phi2 = (DV.phi2/180)*pi;
     DV.phi3 = (DV.phi3/180)*pi;

@@ -42,7 +42,7 @@ Timer debugTimer;
 Thread transmitterT(osPriorityNormal, 2 * 1024,NULL, "transmitterThread");
 Thread receiverT(osPriorityNormal, 32 * 1024,NULL, "receiverThread");
 Thread odriveThread(osPriorityBelowNormal, 16 * 1024,NULL, "OdriveThread");
-Thread accelT(osPriorityNormal, 32 * 1024,NULL, "AccelThread");
+Thread accelT(osPriorityAboveNormal, 32 * 1024,NULL, "AccelThread");
 Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
 Thread ESKFT(osPriorityNormal, 32 * 1024,NULL, "ESKFThread") /* 32K stack */;
 
@@ -558,8 +558,8 @@ void ESKFThread(){
     float sigma_init_accel_bias = 100*sigma_accel_drift; // [m/s^2]
     float sigma_init_gyro_bias = 100*sigma_gyro_drift; // [rad/s]
 
-    float sigma_mocap_pos = 0.001; // [m]
-    float sigma_mocap_rot = 0.010; // [rad]
+    float sigma_mocap_pos = 0.002; // [m]
+    float sigma_mocap_rot = 0.20; // [rad]
     eskfPTR = new ESKF(
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
@@ -608,7 +608,7 @@ void ESKFThread(){
             if(mocapCount == 200){
 
                 float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
-                buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
+                //buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
                 mocapCount = 0;
                 lastMocapT = debugTimer.read_us();
             }
@@ -635,7 +635,7 @@ void ESKFThread(){
                         imuCount ++;
             if(imuCount == 200){
                 float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
-                buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
+                //buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
                 imuCount = 0;
                 lastIMUT = debugTimer.read_us();
             }
@@ -688,7 +688,7 @@ int main()
 
     
     receiverT.start(receive);
-    Thread::wait(5000);
+    Thread::wait(9000);
     ESKFT.start(ESKFThread);
     //transmitterT.start(transmit);
     odriveThread.start(runOdrive);

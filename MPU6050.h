@@ -175,7 +175,7 @@ int delt_t = 0; // used to control display output rate
 int count = 0;  // used to control display output rate
  
 // parameters for 6 DoF sensor fusion calculations
-//float PI = 3.14159265358979323846f;
+float PI = 3.14159265358979323846f;
 float GyroMeasError = PI * (60.0f / 180.0f);     // gyroscope measurement error in rads/s (start at 60 deg/s), then reduce after ~10 s to 3
 float beta = sqrt(3.0f / 4.0f) * GyroMeasError;  // compute beta
 float GyroMeasDrift = PI * (1.0f / 180.0f);      // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
