@@ -110,7 +110,9 @@ typedef struct{
     Vector3f gyro;
     rosTime stamp;
 } imuMail;
-Mail<imuMail, 16> mail_box;
+Mail<imuMail, 128> mail_box;
+
+Mail<ImuData, 128> mail_box_transmit_imu;
 
 
 void transmit()
@@ -119,7 +121,7 @@ void transmit()
         Thread::wait(1);
     }
     string out_buffer = "very important data";
-    SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
+    SocketAddress transmit("10.0.0.51", BROADCAST_PORT_T);
     chunk.type = imuDataChunk;
     // fromRobot msg;
     // msg.motor1.busVoltage = 69;
@@ -147,6 +149,16 @@ void transmit()
         //     }
             
         // }
+        while(!mail_box_transmit_imu.empty()){
+                        osEvent evt = mail_box_transmit_imu.get();
+            if(evt.status == osEventMail){
+            ImuData *mail = (ImuData*)evt.value.p;
+            int ret = socket.sendto(transmit, mail, sizeof(imuDataBuffer));
+
+            mail_box_transmit_imu.free(mail);
+            Thread::yield();
+        }
+        }
         // //imudataMutex.unlock();
         // if(newLocationReturnMsg ==1){
         //     static rosTime last;
@@ -158,7 +170,7 @@ void transmit()
         //     }
         // }
         
-        Thread::wait(100);
+        Thread::signal_wait(0x1);
     }
 }
 
@@ -184,7 +196,7 @@ void receive()
     SocketAddress receive;
     //UDPSocket socket(&eth);
     int bind = socket.bind(BROADCAST_PORT_R);
-    SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
+    SocketAddress transmit("10.0.0.51", BROADCAST_PORT_T);
     //printf("bind return: %d", bind);
 
     char buffer[256];
@@ -255,7 +267,7 @@ void receive()
             locationReturnMsg.quat = mocapLocation.quat;
             locationReturnMsg.refTime = mocapLocation.time;
             locationReturnMsg.time = now;
-            //int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
+            int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
             //newLocationReturnMsg = 1;
         }
             break;
@@ -443,10 +455,10 @@ float detlaTimu = 0.001;
 void accelInterrupt(){
             //newData = 1;
             
-             if(!accelPending){
+             //if(!accelPending){
                 timeMes = timeTracker.getTime();
                  accelT.signal_set(0x1);
-             }
+             //}
 
 }
 
@@ -470,7 +482,7 @@ void accelThread()
 
     ImuData dataOut; 
 
-    SocketAddress transmit("10.0.0.160", BROADCAST_PORT_T);
+    SocketAddress transmit("10.0.0.51", BROADCAST_PORT_T);
     ImuDataChunk chunk;
     chunk.type = imuDataChunk;
     
@@ -481,10 +493,10 @@ void accelThread()
 
         //if(newData){
             //newData = 0;
-            imuDataBuffer.time.seconds = timeMes.seconds;
-            imuDataBuffer.time.nSeconds = timeMes.nSeconds;
+            // imuDataBuffer.time.seconds = timeMes.seconds;
+            // imuDataBuffer.time.nSeconds = timeMes.nSeconds;
             dataCount ++;
-
+            rosTime timeMesLocal = timeMes;
             mpu.readAccelData(accelCount);  // Read the x/y/z adc values
             mpu.getAres();
             mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
@@ -509,23 +521,25 @@ void accelThread()
             //     dataCount = 0;
             //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
             // }
-            imuToSend = 1;
-            detlaTimu = timeTracker.difference(lastIMUTime, timeMes);
-            lastIMUTime = timeMes;
-            imuMail *mail = mail_box.alloc();
-            mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
+            //imuToSend = 1;
+            detlaTimu = timeTracker.difference(lastIMUTime, timeMesLocal);
+            lastIMUTime = timeMesLocal;
+            if(detlaTimu != 0.0){
+                imuMail *mail = mail_box.alloc();
+                mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
 
-            mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+                mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
 
-            mail->stamp = timeMes;
-            mail_box.put(mail);
-            ESKFT.signal_set(0x1);
-            if(dataCount % 2000 ==0){
-                float fps = 1000000 * dataCount / debugT.read_us();
-                buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fframesPerS\r\n",accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2],timeMes.seconds,timeMes.nSeconds, fps);
-                dataCount = 0;
-                debugT.reset();
+                mail->stamp = timeMesLocal;
+                mail_box.put(mail);
+                ESKFT.signal_set(0x1);
             }
+            // if(dataCount % 2000 ==0){
+            //     float fps = 1000000 * dataCount / debugT.read_us();
+            //     buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fframesPerS\r\n",accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2],timeMes.seconds,timeMes.nSeconds, fps);
+            //     dataCount = 0;
+            //     debugT.reset();
+            // }
         //}
         //Thread::yield();
         accelPending = 0;
@@ -561,8 +575,8 @@ void ESKFThread(){
     float sigma_init_accel_bias = 100*sigma_accel_drift; // [m/s^2]
     float sigma_init_gyro_bias = 100*sigma_gyro_drift; // [rad/s]
 
-    float sigma_mocap_pos = 0.002; // [m]
-    float sigma_mocap_rot = 0.20; // [rad]
+    float sigma_mocap_pos = 0.001; // [m]
+    float sigma_mocap_rot = 0.01; // [rad]
     eskfPTR = new ESKF(
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
@@ -608,15 +622,15 @@ void ESKFThread(){
             Thread::yield();
 
             mocapCount ++;
-            if(mocapCount == 200){
+            // if(mocapCount == 200){
 
-                float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
-                buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
-                mocapCount = 0;
-                lastMocapT = debugTimer.read_us();
-                Vector3f posD = eskfPTR->getPos();
-                    buffered_pc.printf(" position x y z %f %f %f\r\n",posD[0],posD[1],posD[2] );
-            }
+            //     float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
+            //     buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
+            //     mocapCount = 0;
+            //     lastMocapT = debugTimer.read_us();
+            //     Vector3f posD = eskfPTR->getPos();
+            //         buffered_pc.printf(" position x y z %f %f %f\r\n",posD[0],posD[1],posD[2] );
+            // }
         }
         //if(imuToSend==1){
         
@@ -631,6 +645,8 @@ void ESKFThread(){
             Vector3f accelLocal = GRAVITY * rotMat * mail->accel;
             
             Vector3f gyroLocal = degToRad * rotMat * mail->gyro;
+
+            rosTime timeLocal = mail->stamp;
             mail_box.free(mail);
 
                 eskfPTR->predictIMU(accelLocal,gyroLocal,0.001f);
@@ -638,12 +654,27 @@ void ESKFThread(){
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
                         imuCount ++;
-            if(imuCount == 2000){
-                float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
-                buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
-                imuCount = 0;
-                lastIMUT = debugTimer.read_us();
-            }
+                        if(imuCount %1 == 0){
+                            ImuData *mail = mail_box_transmit_imu.alloc();
+                            mail->type = imuData;
+                            mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set
+                            mail->accel.y = accelLocal[1];
+                            mail->accel.z = accelLocal[2];
+
+                            mail->gyro.x = gyroLocal[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+                            mail->gyro.y = gyroLocal[1]; // - gyroBias[1];
+                            mail->gyro.z = gyroLocal[2]; // - gyroBias[2];
+                            mail->time = timeLocal;
+                            mail_box_transmit_imu.put(mail);
+                            imuToSend = 1;
+                            transmitterT.signal_set(0x1);
+                        }
+            // if(imuCount == 2000){
+            //     float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
+            //     buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
+            //     imuCount = 0;
+            //     lastIMUT = debugTimer.read_us();
+            // }
             Thread::yield();
             }
         }
@@ -695,7 +726,7 @@ int main()
     receiverT.start(receive);
     Thread::wait(9000);
     ESKFT.start(ESKFThread);
-    //transmitterT.start(transmit);
+    transmitterT.start(transmit);
     odriveThread.start(runOdrive);
     accelT.start(accelThread);
     printBattery.start(batteryThread);
