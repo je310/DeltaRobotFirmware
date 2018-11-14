@@ -11,7 +11,9 @@ using namespace std;
 ESKF::ESKF(Eigen::Vector3f a_gravity,
         const Eigen::Matrix<float, STATE_SIZE, 1>& initialState,
         const Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE>& initalP,
-        float var_acc, float var_omega, float var_acc_bias, float var_omega_bias)
+        float var_acc, float var_omega, float var_acc_bias, float var_omega_bias,
+        int delayHandling,
+           int bufferL)
         : var_acc_(var_acc),
         var_omega_(var_omega),
         var_acc_bias_(var_acc_bias),
@@ -19,7 +21,7 @@ ESKF::ESKF(Eigen::Vector3f a_gravity,
         a_gravity_(a_gravity),
         nominalState_(initialState),
         P_(initalP) {
-    
+
     // Jacobian of the state transition: page 59, eqn 269
     // Precompute constant part only
     F_x_.setZero();
@@ -32,6 +34,23 @@ ESKF::ESKF(Eigen::Vector3f a_gravity,
     F_x_.block<3, 3>(dAB_IDX, dAB_IDX) = I_3;
     // dGyroBias row
     F_x_.block<3, 3>(dGB_IDX, dGB_IDX) = I_3;
+
+    // how to handle delayed messurements.
+    delayHandling_ = delayHandling;
+    bufferL_ = bufferL;
+    recentPtr = 0;
+    firstMeasTime = lTime(INT32_MAX,INT32_MAX);
+
+
+    if(delayHandling_ == applyUpdateToNew ){
+        //init circular buffer for state
+        //stateHistoryPtr_ = new std::vector<std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> > >(bufferL_);
+        for(int i = 0; i < bufferL; i++){
+            stateHistoryPtr_[(i)].first = lTime(0,0);
+            stateHistoryPtr_[(i)].second << 0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0;
+        }
+    }
+
 }
 
 
@@ -107,7 +126,10 @@ Vector3f ESKF::quatToRotVec(const Quaternionf& q) {
     return angAx.angle() * angAx.axis();
 }
 
-void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float dt) {
+void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float dt, lTime stamp) {
+    recentPtr ++;
+
+
     // DCM of current state
     Matrix3f Rot = getDCM();
     // Accelerometer measurement
@@ -125,19 +147,6 @@ void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float 
     nominalState_.block<3, 1>(VEL_IDX, 0) += (acc_global + a_gravity_)*dt;
     nominalState_.block<4, 1>(QUAT_IDX, 0) = quatToHamilton(getQuat()*q_delta_theta).normalized();
 
-    // // Jacobian of the state transition (eqn 269, page 59)
-    // // Update dynamic parts only
-    // // dPos row
-    // F_x_.block<3, 3>(dPOS_IDX, dVEL_IDX).diagonal().fill(dt); // = I_3 * _dt
-    // // dVel row
-    // F_x_.block<3, 3>(dVEL_IDX, dTHETA_IDX) = -Rot * getSkew(acc_body) * dt;
-    // F_x_.block<3, 3>(dVEL_IDX, dAB_IDX) = -Rot * dt;
-    // // dTheta row
-    // F_x_.block<3, 3>(dTHETA_IDX, dTHETA_IDX) = R_delta_theta.transpose();
-    // F_x_.block<3, 3>(dTHETA_IDX, dGB_IDX).diagonal().fill(-dt); // = -I_3 * dt;
-
-    // Predict P and inject variance (with diagonal optimization)
-    // P_ = F_x_*P_*F_x_.transpose();
 
     Matrix<float, dSTATE_SIZE, dSTATE_SIZE> Pnew;
     unrolledFPFt(P_, Pnew, dt,
@@ -151,6 +160,16 @@ void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float 
     P_.diagonal().block<3, 1>(dTHETA_IDX, 0).array() += var_omega_ * SQ(dt);
     P_.diagonal().block<3, 1>(dAB_IDX, 0).array() += var_acc_bias_ * dt;
     P_.diagonal().block<3, 1>(dGB_IDX, 0).array() += var_omega_bias_ * dt;
+
+    if(delayHandling_ == applyUpdateToNew  ){
+        //store state for later.
+        std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> > thisState;
+        thisState.first = stamp;
+        thisState.second = nominalState_;
+        stateHistoryPtr_[(recentPtr%bufferL_)] = thisState;
+
+    }
+
 }
 
 // eqn 280, page 62
@@ -170,24 +189,92 @@ Matrix<float, 4, 3> ESKF::getQ_dtheta() {
     return Q_dtheta;
 }
 
-void ESKF::measurePos(const Vector3f& pos_meas, const Matrix3f& pos_covariance) {
-    // delta measurement is trivial
-    Vector3f delta_pos = pos_meas - getPos();
+//get best time from history of state
+int ESKF::getClosestTime(std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> >ptr[100], lTime stamp){
+    //we find the first time in the history that is older, or take the oldest one if the buffer does not extend far enough
+    int complete = 0;
+    int index = recentPtr;
+    while(!complete){
+        if(ptr[(index%bufferL_)].first <= stamp){
+            if(!ptr[(index%bufferL_)].first.isZero()) return index%bufferL_;
+
+            else{
+                return recentPtr%bufferL_;
+            }
+
+        }
+        index --; // scroll back in time.
+        if(index <= recentPtr - bufferL_) complete =1;
+    }
+    return recentPtr%bufferL_;
+}
+
+//get best time from history of imu
+int ESKF::getClosestTime(std::vector<imuMeasurement>*  ptr, lTime stamp){
+    //we find the first time in the history that is older, or take the oldest one if the buffer does not extend far enough
+    int complete = 0;
+    int index = recentPtr;
+    while(!complete){
+        if(ptr->at(index%bufferL_).time <= stamp){
+            if(!ptr->at(index%bufferL_).time.isZero()) return index%bufferL_;
+
+            else{
+                return recentPtr%bufferL_;
+            }
+
+        }
+        index --; // scroll back in time.
+        if(index <= recentPtr - bufferL_) complete =1;
+    }
+    return recentPtr%bufferL_;
+}
+
+
+void ESKF::measurePos(const Vector3f& pos_meas, const Matrix3f& pos_covariance,lTime stamp ,lTime now) {
+    // delta measurement
+    if(firstMeasTime == lTime(INT32_MAX,INT32_MAX)) firstMeasTime = now;
+
+    Vector3f delta_pos;
+    if(delayHandling_ == noMethod){
+        delta_pos = pos_meas - getPos();
+    }
+
+    if(delayHandling_ == applyUpdateToNew ){
+        if(lastMeasurement < stateHistoryPtr_[((recentPtr + 1)%bufferL_)].first) firstMeasTime = now;
+        if(stamp > firstMeasTime){
+        int bestTimeIndex = getClosestTime(stateHistoryPtr_,stamp);
+        delta_pos = pos_meas - stateHistoryPtr_[(bestTimeIndex)].second.block<3, 1>(POS_IDX, 0);
+        }
+        else delta_pos = pos_meas - getPos();
+    }
+
+    lastMeasurement = now;
     // H is a trivial observation of purely the position
     Matrix<float, 3, dSTATE_SIZE> H;
     H.setZero();
     H.block<3, 3>(0, dPOS_IDX) = I_3;
 
     // Apply update
-    update_3D(delta_pos, pos_covariance, H);
+    update_3D(delta_pos, pos_covariance, H, stamp, now);
 }
 
-void ESKF::measureQuat(const Quaternionf& q_gb_meas, const Matrix3f& theta_covariance) {
+void ESKF::measureQuat(const Quaternionf& q_gb_meas, const Matrix3f& theta_covariance, lTime stamp ,lTime now) {
     // Transform the quaternion measurement to a measurement of delta_theta:
     // a rotation in the body frame from nominal to measured.
     // This is identical to the form of dtheta in the error_state,
     // so this becomes a trivial measurement of dtheta.
+    if(firstMeasTime == lTime(INT32_MAX,INT32_MAX)) firstMeasTime = now;
     Quaternionf q_gb_nominal = getQuat();
+    if(delayHandling_ == noMethod ){
+        q_gb_nominal = getQuat();
+    }
+    if(delayHandling_ == applyUpdateToNew){
+        if(stamp > firstMeasTime){
+        int bestTimeIndex = getClosestTime(stateHistoryPtr_,stamp);
+        q_gb_nominal = quatFromHamilton(stateHistoryPtr_[(bestTimeIndex)].second.block<4, 1>(QUAT_IDX, 0));
+        }
+        else q_gb_nominal = getQuat();
+    }
     Quaternionf q_bNominal_bMeas = q_gb_nominal.conjugate() * q_gb_meas;
     Vector3f delta_theta = quatToRotVec(q_bNominal_bMeas);
     // Because of the above construction, H is a trivial observation of dtheta
@@ -196,16 +283,24 @@ void ESKF::measureQuat(const Quaternionf& q_gb_meas, const Matrix3f& theta_covar
     H.block<3, 3>(0, dTHETA_IDX) = I_3;
 
     // Apply update
-    update_3D(delta_theta, theta_covariance, H);
+    update_3D(delta_theta, theta_covariance, H, stamp, now);
 }
 
 void ESKF::update_3D(
         const Vector3f& delta_measurement,
         const Matrix3f& meas_covariance,
-        const Matrix<float, 3, dSTATE_SIZE>& H) {
+        const Matrix<float, 3, dSTATE_SIZE>& H,
+        lTime stamp,
+        lTime now) {
+
+
     // Kalman gain
     Matrix<float, dSTATE_SIZE, 3> PHt = P_*H.transpose();
-    Matrix<float, dSTATE_SIZE, 3> K = PHt * (H*PHt + meas_covariance).inverse();
+    Matrix<float, dSTATE_SIZE, 3> K;
+    K = PHt * (H*PHt + meas_covariance).inverse();
+
+    //bestTimeIndex = getClosestTime(Kptr_,stamp);
+
     // Correction error state
     Matrix<float, dSTATE_SIZE, 1> errorState = K * delta_measurement;
     // Update P (simple form)
@@ -214,7 +309,39 @@ void ESKF::update_3D(
     Matrix<float, dSTATE_SIZE, dSTATE_SIZE> I_KH = I_dx - K*H;
     P_ = I_KH*P_*I_KH.transpose() + K*meas_covariance*K.transpose();
 
+
+
     injectErrorState(errorState);
+}
+
+ESKF::imuMeasurement ESKF::getAverageIMU(lTime stamp){
+    Vector3f accelAcc(0,0,0);
+    Vector3f gyroAcc(0,0,0);
+    int complete = 0;
+    int index = recentPtr;
+    int count = 0;
+    while(!complete){
+        if(imuHistoryPtr_->at(index%bufferL_).time >= stamp){
+            if(!imuHistoryPtr_->at(index%bufferL_).time.isZero()){
+                //should acc
+                accelAcc += imuHistoryPtr_->at(index%bufferL_).acc;
+                gyroAcc += imuHistoryPtr_->at(index%bufferL_).gyro;
+                count ++;
+            }
+        }
+        else{
+            break;
+        }
+        index --; // scroll back in time.
+        if(index <= recentPtr - bufferL_) complete =1;
+    }
+    accelAcc = accelAcc / count;
+    gyroAcc = gyroAcc / count;
+    ESKF::imuMeasurement ret;
+    ret.acc = accelAcc;
+    ret.gyro = gyroAcc;
+    ret.time = imuHistoryPtr_->at(index%bufferL_).time;
+    return ret;
 }
 
 void ESKF::injectErrorState(const Matrix<float, dSTATE_SIZE, 1>& error_state) {\
@@ -231,6 +358,6 @@ void ESKF::injectErrorState(const Matrix<float, dSTATE_SIZE, 1>& error_state) {\
     // Note that the document suggests that this step is optional
     // eqn 287, pg 63
     Matrix3f G_theta = I_3 - getSkew(0.5f * dtheta);
-    P_.block<3, 3>(dTHETA_IDX, dTHETA_IDX) = 
+    P_.block<3, 3>(dTHETA_IDX, dTHETA_IDX) =
             G_theta * P_.block<3, 3>(dTHETA_IDX, dTHETA_IDX) * G_theta.transpose();
 }

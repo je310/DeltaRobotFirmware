@@ -15,6 +15,7 @@
 #include "ESKF.h"
 #include <Core.h>
 #include <Geometry.h>
+#include "lTime.h"
 
 //pin definiitions
 #define EXTPIN1 PB_5  //pwm spi1_mosii
@@ -45,7 +46,7 @@ Thread odriveThread(osPriorityBelowNormal, 16 * 1024,NULL, "OdriveThread");
 Thread accelT(osPriorityAboveNormal, 32 * 1024,NULL, "AccelThread");
 
 Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
-Thread ESKFT(osPriorityNormal, 32 * 1024,NULL, "ESKFThread") /* 32K stack */;
+Thread ESKFT(osPriorityNormal, 64 * 1024,NULL, "ESKFThread") /* 32K stack */;
 
 
 //io declarations
@@ -267,7 +268,7 @@ void receive()
             locationReturnMsg.quat = mocapLocation.quat;
             locationReturnMsg.refTime = mocapLocation.time;
             locationReturnMsg.time = now;
-            int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
+            //int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
             //newLocationReturnMsg = 1;
         }
             break;
@@ -596,7 +597,8 @@ void ESKFThread(){
             SQ(sigma_accel),
             SQ(sigma_gyro),
             SQ(sigma_accel_drift),
-            SQ(sigma_gyro_drift));
+            SQ(sigma_gyro_drift),
+            ESKF::delayTypes::applyUpdateToNew,100);
 
     //loop waiting for data to come in
     int imuCount = 0;
@@ -615,10 +617,12 @@ void ESKFThread(){
             newMocapLocation = 0;
             Quaternionf quat(mocapLocation.quat.w,mocapLocation.quat.x,mocapLocation.quat.y,mocapLocation.quat.z);
             Vector3f pos(mocapLocation.pos.x,mocapLocation.pos.y,mocapLocation.pos.z);
-            
-            eskfPTR->measurePos(pos,SQ(sigma_mocap_pos)*I_3);
+            lTime stamp(mocapLocation.time.seconds,mocapLocation.time.nSeconds);
+            rosTime nowRos = timeTracker.getTime();
+            lTime now(nowRos.seconds,nowRos.nSeconds);
+            eskfPTR->measurePos(pos,SQ(sigma_mocap_pos)*I_3,stamp,now);
             Thread::yield();
-            eskfPTR->measureQuat(quat,SQ(sigma_mocap_rot)*I_3);
+            eskfPTR->measureQuat(quat,SQ(sigma_mocap_rot)*I_3,stamp,now);
             Thread::yield();
 
             mocapCount ++;
@@ -647,14 +651,17 @@ void ESKFThread(){
             Vector3f gyroLocal = degToRad * rotMat * mail->gyro;
 
             rosTime timeLocal = mail->stamp;
+            lTime stamp(timeLocal.seconds,timeLocal.nSeconds);
+            rosTime nowRos = timeTracker.getTime();
+            lTime now(nowRos.seconds,nowRos.nSeconds);
             mail_box.free(mail);
 
-                eskfPTR->predictIMU(accelLocal,gyroLocal,0.001f);
+                eskfPTR->predictIMU(accelLocal,gyroLocal,0.001f,stamp);
 
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
                         imuCount ++;
-                        if(imuCount %1 == 0){
+                        if(imuCount %10 == 0){
                             ImuData *mail = mail_box_transmit_imu.alloc();
                             mail->type = imuData;
                             mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set

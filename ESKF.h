@@ -2,10 +2,12 @@
 #define ESKF_H
 
 // Malloc is really bad on embedded platform
-#define EIGEN_NO_MALLOC
+//#define EIGEN_NO_MALLOC
 #include <Core.h>
 #include <Geometry.h>
 #include <iostream>
+#include <lTime.h>
+#include <vector>
 
 #define SUPPORT_STDIOSTREAM
 
@@ -31,7 +33,8 @@ public:
     ESKF(Eigen::Vector3f a_gravity,
             const Eigen::Matrix<float, STATE_SIZE, 1>& initialState,
             const Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE>& initalP,
-            float var_acc, float var_omega, float var_acc_bias, float var_omega_bias);
+            float var_acc, float var_omega, float var_acc_bias, float var_omega_bias,
+            int delayHandling, int bufferL);
 
     // Concatenates relevant vectors to one large vector.
     static Eigen::Matrix<float, STATE_SIZE, 1> makeState(
@@ -57,6 +60,8 @@ public:
     static Eigen::Vector3f quatToRotVec(const Eigen::Quaternionf& q);
     static Eigen::Matrix3f getSkew(const Eigen::Vector3f& in);
 
+
+
     // Acessors of nominal state
     inline Eigen::Vector3f getPos() { return nominalState_.block<3, 1>(POS_IDX, 0); }
     inline Eigen::Vector3f getVel() { return nominalState_.block<3, 1>(VEL_IDX, 0); }
@@ -67,33 +72,52 @@ public:
 
     // Called when there is a new measurment from the IMU.
     // dt is the integration time of this sample, nominally the IMU sample period
-    void predictIMU(const Eigen::Vector3f& a_m, const Eigen::Vector3f& omega_m, const float dt);
+    void predictIMU(const Eigen::Vector3f& a_m, const Eigen::Vector3f& omega_m, const float dt, lTime stamp);
 
     // Called when there is a new measurment from an absolute position reference.
     // Note that this has no body offset, i.e. it assumes exact observation of the center of the IMU.
-    void measurePos(const Eigen::Vector3f& pos_meas, const Eigen::Matrix3f& pos_covariance);
+    void measurePos(const Eigen::Vector3f& pos_meas, const Eigen::Matrix3f& pos_covariance, lTime stamp, lTime now);
 
     // Called when there is a new measurment from an absolute position reference.
     // The measurement is with respect to some location on the body that is not at the IMU center in general.
     // pos_ref_body should specify the reference location in the body frame.
     // For example, this would be the location of the GPS antenna on the body.
     // NOT YET IMPLEMENTED
-    // void measurePosWithOffset(Eigen::Vector3f pos_meas, Matrix3f pos_covariance, 
+    // void measurePosWithOffset(Eigen::Vector3f pos_meas, Matrix3f pos_covariance,
     //        Eigen::Vector3f pos_ref_body);
 
     // Called when there is a new measurment from an absolute orientation reference.
     // The uncertianty is represented as the covariance of a rotation vector in the body frame
-    void measureQuat(const Eigen::Quaternionf& q_meas, const Eigen::Matrix3f& theta_covariance);
+    void measureQuat(const Eigen::Quaternionf& q_meas, const Eigen::Matrix3f& theta_covariance, lTime stamp, lTime now);
 
     Eigen::Matrix3f getDCM();
 
+    enum delayTypes{
+        noMethod,           //apply updates  as if they are new.
+        applyUpdateToNew,   //Keep buffer of states, calculate what the update would have been, and apply to current state.
+        larsonAverageIMU,   //Method as described by Larson et al. Though a buffer of IMU values is kept, and a single update taking the average of these values is used.
+        larsonNewestIMU,    //As above, though no buffer kept, use most recent value as representing the average.
+        larsonFull          //As above, though the buffer is applied with the correct time steps, fully as described by Larson.
+    };
+    struct imuMeasurement{
+        Eigen::Vector3f acc;
+        Eigen::Vector3f gyro;
+        lTime time;
+    };
+
 private:
     Eigen::Matrix<float, 4, 3> getQ_dtheta(); // eqn 280, page 62
-    void update_3D(
-        const Eigen::Vector3f& delta_measurement,
+    void update_3D(const Eigen::Vector3f& delta_measurement,
         const Eigen::Matrix3f& meas_covariance,
-        const Eigen::Matrix<float, 3, dSTATE_SIZE>& H);
+        const Eigen::Matrix<float, 3, dSTATE_SIZE>& H, lTime stamp, lTime now);
     void injectErrorState(const Eigen::Matrix<float, dSTATE_SIZE, 1>& error_state);
+
+    //get best time from history of state
+    int getClosestTime(std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> >ptr[100], lTime stamp);
+
+    //get best time from history of imu
+    int getClosestTime(std::vector<imuMeasurement>*  ptr, lTime stamp);
+    imuMeasurement getAverageIMU(lTime stamp);
 
     // IMU Noise values, used in prediction
     float var_acc_;
@@ -101,7 +125,7 @@ private:
     float var_acc_bias_;
     float var_omega_bias_;
     // Acceleration due to gravity in global frame
-    Eigen::Vector3f a_gravity_; // [m/s^2] 
+    Eigen::Vector3f a_gravity_; // [m/s^2]
     // State vector of the filter
     Eigen::Matrix<float, STATE_SIZE, 1> nominalState_;
     // Covariance of the (error) state
@@ -110,6 +134,19 @@ private:
     // Note that we precompute the static parts in the constructor,
     // and update the dynamic parts in the predict function
     Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE> F_x_;
+
+
+    int delayHandling_;
+    int bufferL_;
+    int recentPtr;
+    //pointers to structures that are allocated only after choosing a time delay handling method.
+    std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> > stateHistoryPtr_[100];
+    std::vector<std::pair<lTime,Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE> > >* PHistoryPtr_;
+    std::vector<imuMeasurement>* imuHistoryPtr_;
+    imuMeasurement lastImu_;
+    lTime firstMeasTime;
+    lTime lastMeasurement;
+
 };
 
 #endif /* ESKF_H */
