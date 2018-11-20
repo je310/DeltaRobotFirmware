@@ -40,7 +40,8 @@ ESKF::ESKF(Eigen::Vector3f a_gravity,
     bufferL_ = bufferL;
     recentPtr = 0;
     firstMeasTime = lTime(INT32_MAX,INT32_MAX);
-
+    lastImu_.gyro <<0,0,0;
+    lastImu_.acc <<0,0,0;
 
     if(delayHandling_ == applyUpdateToNew ){
         //init circular buffer for state
@@ -135,8 +136,10 @@ void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float 
     // Accelerometer measurement
     Vector3f acc_body = a_m - getAccelBias();
     Vector3f acc_global = Rot * acc_body;
+    lastImu_.acc = acc_global;
     // Gyro measruement
     Vector3f omega = omega_m - getGyroBias();
+    lastImu_.gyro  = omega;
     Vector3f delta_theta = omega * dt;
     Quaternionf q_delta_theta = rotVecToQuat(delta_theta);
     Matrix3f R_delta_theta = q_delta_theta.toRotationMatrix();

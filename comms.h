@@ -14,7 +14,8 @@ enum messageType{
     locationIn=5,
     userIn = 6,
     imuData = 7,
-    imuDataChunk = 8
+    imuDataChunk = 8,
+    lineCmd = 9
 };
 
 struct vectorThree{
@@ -48,6 +49,14 @@ struct CartSpaceCmd{
     vectorThree vel;
     float yaw;
     float pitch;
+};
+
+struct LineCmd{
+    int32_t type;
+    vectorThree posStart;
+    vectorThree posEnd;
+    vectorThree vel;
+    vectorFour quat;
 };
 
 struct PingOut{

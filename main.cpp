@@ -51,6 +51,7 @@ Thread ESKFT(osPriorityNormal, 64 * 1024,NULL, "ESKFThread") /* 32K stack */;
 
 //io declarations
 DigitalOut led1(LED1);
+DigitalOut UVLed(EXTPIN4);
 DigitalOut homeGND(PF_5);
 DigitalIn homeSwitchA(PA_3);
 DigitalIn homeSwitchB(PC_0);
@@ -91,6 +92,9 @@ int updatedESKF = 0;
 //odrive globals
 calVals calibration;
 float batteryV = -1;
+
+Eigen::Vector3f targetPos(0,0,0);
+Eigen::Quaternionf targetRot(1,0,0,0);
 
 //imu globals
 MPU6050 mpu;
@@ -273,18 +277,28 @@ void receive()
         }
             break;
 
+        case lineCmd:{
+            LineCmd inmsg;
+            memcpy(&inmsg, buffer, n);
+            //for now only use the first point and orientation. 
+            targetPos << inmsg.posStart.x , inmsg.posStart.y, inmsg.posStart.z;
+            targetRot= Eigen::Quaternionf(inmsg.quat.w , inmsg.quat.x , inmsg.quat.y , inmsg.quat.z);
+
+        }
+        break;
+
         case pingIn:
         
-            buffered_pc.printf("This is an outgoing type !!\n\r");
+            buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
         
             break;
 
         case locationIn:
-                buffered_pc.printf("This is an outgoing type !!\n\r");
+                buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
             break;
 
         case userIn:
-                buffered_pc.printf("This is an outgoing type !!\n\r");
+                buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
             break;
 
         default: ;
@@ -326,8 +340,8 @@ Eigen::Affine3f transformToEigen(Eigen::Vector3f pos, Eigen::Quaternionf quat){
 void runOdrive()
 {
     //start servos on endEffector
-    ServoAxis pitch(EXTPIN1,35, -35, 1500, 1200.0/120.0, 6.0);
-    ServoAxis yaw(EXTPIN2,50, -50, 1500, -1200.0/120.0, 2.0);  
+    ServoAxis pitch(EXTPIN1,35, -15, 1500, 1200.0/120.0, 6.0);
+    ServoAxis yaw(EXTPIN2,60, -60, 1500, -1200.0/120.0, 2.0);  
 //    while(1) {
 //        pitch.setAngle(30);
 //        yaw.setAngle(30);
@@ -356,8 +370,14 @@ void runOdrive()
     buffered_pc.printf("setting motors to idle\r\n");
     kin.goIdle();
     kin.goIdle();
-    error += kin.setSafeParams();
-    while(error) {}
+    error = 1;
+    while(error > 0){
+        error = kin.setSafeParams();
+        Thread::wait(100);
+        buffered_pc.printf("there were %d errors in the read/write\r\n",error);
+        Thread::wait(100);
+    }
+
         pitch.setAngle(0);
             yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
@@ -376,8 +396,13 @@ void runOdrive()
 
     //kin.goToAngles(pi/4,pi/4,pi/4);
     Thread::wait(500);
-    error += kin.setFastParams();
-    while(error) {}
+    error = 1;
+    while(error > 0){
+        error = kin.setFastParams();
+        Thread::wait(100);
+        buffered_pc.printf("there were %d errors in the read/write\r\n",error);
+        Thread::wait(100);
+    }
     Thread::wait(1000);
 
     Thread::wait(100);
@@ -437,10 +462,31 @@ void runOdrive()
                     buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
                 }
                 Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
-                Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
+                //Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
+                Eigen::Affine3f target = Eigen::Translation3f(targetPos) * targetRot;
+                Eigen::Quaternionf targetRotInv = targetRot.inverse();
+                Eigen::Vector3f up;
+                up << 0,1,0;
+                Eigen::Vector3f side ;
+                side << 0,0,1;
+                                rosTime rTime = timeTracker.getTime();
+                lTime lt(rTime.seconds,rTime.nSeconds);
+                //up = targetRot._transformVector(up);
+                up = 0.05*cos(2.0*lt.toSec())*up;
+                //side = targetRot._transformVector(side);
+                side = 0.05*sin(2.0*lt.toSec())*side;
+                up = up + side;
+                up = targetRot._transformVector(up);
+                //side = targetRot.inverse()._transformVector(side);
+
+                target =  Eigen::Translation3f(up) * target;
+                Eigen::Vector3f angRates = eskfPTR->lastImu_.gyro;
+                float ffGain = 0.025;
                 //buffered_pc.printf(" here x y z %f %f %f\r\n",eskfPTR->getPos()[0],eskfPTR->getPos()[1],eskfPTR->getPos()[2] );
                 //buffered_pc.printf(" hereQ w x y z %f %f %f %f\r\n",eskfPTR->getQuat().coeffs()[0],eskfPTR->getQuat().coeffs()[1],eskfPTR->getQuat().coeffs()[2],eskfPTR->getQuat().coeffs()[2]  );
-                kin.goToWorldPos(here,target);
+                int notReachable = kin.goToWorldPos(here,target, angRates, ffGain);
+                if (notReachable) UVLed = 0;
+                else UVLed =1;
             }
     }
         Thread::signal_wait(0x1);
@@ -655,8 +701,12 @@ void ESKFThread(){
             rosTime nowRos = timeTracker.getTime();
             lTime now(nowRos.seconds,nowRos.nSeconds);
             mail_box.free(mail);
+            static lTime lastStamp(0,0);
+            lTime duration = stamp - lastStamp;
+            if(duration.toSec() > 1.0) duration.fromSec(0.001);
+            if(duration.toSec() == 0.0) duration.fromSec(0.001);
 
-                eskfPTR->predictIMU(accelLocal,gyroLocal,0.001f,stamp);
+            eskfPTR->predictIMU(accelLocal,gyroLocal,duration.toSec(),stamp);
 
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
@@ -701,7 +751,7 @@ int main()
     // testing eigen run time. 
     buffered_pc.baud(115200);
     buffered_pc.printf("hello\r\n");
-    
+    UVLed = 1;
 
 
     calibration.e = 58.095;
@@ -727,13 +777,14 @@ int main()
 
 
     //buffered_pc.printf("Controller IP Address is %s\r\n", eth.get_ip_address());
-    Thread::wait(5000);
+    Thread::wait(1000);
 
     
     receiverT.start(receive);
-    Thread::wait(9000);
+    Thread::wait(7000);
     ESKFT.start(ESKFThread);
     transmitterT.start(transmit);
+    UVLed = 0;
     odriveThread.start(runOdrive);
     accelT.start(accelThread);
     printBattery.start(batteryThread);

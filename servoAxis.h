@@ -10,7 +10,7 @@ class ServoAxis
 public:
 
     ServoAxis(PinName pin,float maxAngle_, float minAngle, float middleUs_, float usPerDeg_, float degOffset_);
-    void setAngle(float angle);
+    int setAngle(float angle);
 
 private:
     PwmOut* pwm;

@@ -105,6 +105,8 @@ public:
         lTime time;
     };
 
+    imuMeasurement lastImu_;
+
 private:
     Eigen::Matrix<float, 4, 3> getQ_dtheta(); // eqn 280, page 62
     void update_3D(const Eigen::Vector3f& delta_measurement,
@@ -143,7 +145,7 @@ private:
     std::pair<lTime,Eigen::Matrix<float, STATE_SIZE, 1> > stateHistoryPtr_[100];
     std::vector<std::pair<lTime,Eigen::Matrix<float, dSTATE_SIZE, dSTATE_SIZE> > >* PHistoryPtr_;
     std::vector<imuMeasurement>* imuHistoryPtr_;
-    imuMeasurement lastImu_;
+    
     lTime firstMeasTime;
     lTime lastMeasurement;
 
