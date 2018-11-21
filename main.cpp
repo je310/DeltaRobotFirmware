@@ -340,8 +340,8 @@ Eigen::Affine3f transformToEigen(Eigen::Vector3f pos, Eigen::Quaternionf quat){
 void runOdrive()
 {
     //start servos on endEffector
-    ServoAxis pitch(EXTPIN1,35, -15, 1500, 1200.0/120.0, 6.0);
-    ServoAxis yaw(EXTPIN2,60, -60, 1500, -1200.0/120.0, 2.0);  
+    ServoAxis pitch(EXTPIN1,35, -15, 1500, (1200.0*1.0425)/120.0, 6.0);
+    ServoAxis yaw(EXTPIN2,60, -60, 1500, -(1200.0*1.0425)/120.0, 2.0);  
 //    while(1) {
 //        pitch.setAngle(30);
 //        yaw.setAngle(30);
@@ -381,8 +381,11 @@ void runOdrive()
         pitch.setAngle(0);
             yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
+            int even = 1 ;
     while(*A.homeSwitch_||*B.homeSwitch_ || *C.homeSwitch_) {
-       Thread::wait(200); 
+       Thread::wait(1000); 
+        even = even * -1.0;
+            yaw.setAngle(40*even);
        batteryV = OD1.readBattery();
        } // wait till user
     buffered_pc.printf("finding index\r\n");
