@@ -329,6 +329,8 @@ INCLUDE_DIRECTORIES(
 
 # executable DeltaRobotFirmware
 ADD_EXECUTABLE(DeltaRobotFirmware
+  path.h
+  path.cpp
   Axis.cpp
   Axis.h
   lTime.h

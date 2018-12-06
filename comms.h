@@ -2,6 +2,7 @@
 #define COMMS_H
 
 #include <stdint.h>
+#include "path.h"
 
 
 //lower case starts for the enumeration, upper case for the struct definition.
@@ -15,8 +16,11 @@ enum messageType{
     userIn = 6,
     imuData = 7,
     imuDataChunk = 8,
-    lineCmd = 9
+    lineCmd = 9,
+    pathMsg = 10
 };
+
+
 
 struct vectorThree{
     float x;
@@ -32,6 +36,11 @@ struct vectorFour{
 struct rosTime{
     int32_t seconds;
     int32_t nSeconds;
+};
+
+struct PathMsg{
+        int32_t type;
+        segment seg;
 };
 
 struct AngleSpaceCmd{
@@ -77,6 +86,7 @@ struct LocationOut{
     vectorThree pos;
     vectorFour quat;
     rosTime time;
+    float confidence;
 };
 
 struct LocationIn{

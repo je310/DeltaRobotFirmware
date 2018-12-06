@@ -18,24 +18,24 @@ Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis
     dim.L = rf;
     dim.l = re;
     dim.h = 60;
-    dim.max_neg_angle = -20;
+    dim.max_neg_angle = -4;
     dim.min_parallelogram_angle = 30;
     
     DK = new DeltaKinematics<float>(dim);
 
 // produced automatically from the delta gun ros package. 
-GunMarkerToBaseCentreM<<0.988361,-0.151568,-0.0130129,0.0511989,0.151498,0.988438,-0.00624483,-0.015117,0.013809,0.00420072,0.999896,-0.0495781,0,0,0,1;
-GunMarkerToBaseCentreInvM<<0.988361,0.151498,0.013809,-0.0476282,-0.151568,0.988438,0.00420072,0.0229106,-0.0130129,-0.00624483,0.999896,0.0501448,0,0,0,1;
-HeadCentreToPitchM<<1,0,0,0.01921,0,1,0,-0.013051,0,0,1,-0.008051,0,0,0,1;
-HeadCentreToPitchInvM<<1,0,0,-0.01921,0,1,0,0.013051,0,0,1,0.008051,0,0,0,1;
+GunMarkerToBaseCentreM<<0.988085,-0.153316,-0.013475,0.0513067,0.153246,0.988169,-0.0061019,-0.0151392,0.0142511,0.0039642,0.999891,-0.049581,0,0,0,1;
+GunMarkerToBaseCentreInvM<<0.988085,0.153246,0.0142511,-0.0476688,-0.153316,0.988169,0.0039642,0.0230228,-0.013475,-0.0061019,0.999891,0.0501746,0,0,0,1;
+HeadCentreToPitchM<<1,0,0,0.0177,0,1,0,-0.011051,0,0,1,0.001949,0,0,0,1;
+HeadCentreToPitchInvM<<1,0,0,-0.0177,0,1,0,0.011051,0,0,1,-0.001949,0,0,0,1;
 PitchToYawM<<1,0,0,0.0081,0,1,0,0,0,0,1,0,0,0,0,1;
 PitchToYawInvM<<1,0,0,-0.0081,0,1,0,0,0,0,1,0,0,0,0,1;
-imuToOriginM<<1,0,0,0.085571,0,1,0,0.0048,0,0,1,-1.11022e-16,0,0,0,1;
-imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.0048,0,0,1,1.11022e-16,0,0,0,1;
+imuToOriginM<<1,0,0,0.085571,0,1,0,0.00393,0,0,1,-1.11022e-16,0,0,0,1;
+imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.00393,0,0,1,1.11022e-16,0,0,0,1;
 boardMarkerToCentreM<<0.967938,-0.0839857,0.236732,0.0163319,0.250649,0.261201,-0.932175,-0.0518183,0.0164548,0.961624,0.273877,-0.182812,0,0,0,1;
 boardMarkerToCentreInvM<<0.967938,0.250649,0.0164548,0.000188067,-0.0839857,0.261201,0.961624,0.190703,0.236732,-0.932175,0.273877,-0.00210193,0,0,0,1;
-yawToTipM<<1,0,0,0.1094,0,1,0,0,0,0,1,0.024,0,0,0,1;
-yawToTipInvM<<1,0,0,-0.1094,0,1,0,0,0,0,1,-0.024,0,0,0,1;
+yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02067,0,0,0,1;
+yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
 
     GunMarkerToBaseCentre = GunMarkerToBaseCentreM;
     GunMarkerToBaseCentreInv = GunMarkerToBaseCentreInvM;
@@ -166,8 +166,8 @@ int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetP
 
     
 
-    Eigen::Vector3f centre(0.170,0,0);
-    float range = 0.090;
+    Eigen::Vector3f centre(0.16,0,0);
+    float range = 0.070;
     float dif = (kinTrans - centre).norm();
     if(dif < range){
 
@@ -332,9 +332,9 @@ void Kinematics::findIndex(){
 void Kinematics::homeMotors()
 {
     Thread::wait(1000);
-    A->homeAxis();
-    Thread::wait(1000);
     B->homeAxis();
+    Thread::wait(1000);
+    A->homeAxis();
     Thread::wait(1000);
     C->homeAxis();
 }

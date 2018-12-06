@@ -16,6 +16,7 @@
 #include <Core.h>
 #include <Geometry.h>
 #include "lTime.h"
+#include "path.h"
 
 //pin definiitions
 #define EXTPIN1 PB_5  //pwm spi1_mosii
@@ -108,6 +109,10 @@ volatile int newData = 0;
 rosTime timeMes;
 rosTime lastIMUTime;
 int accelPending = 0;
+
+//Path management 
+
+PathManager PM;
 
 
 typedef struct{
@@ -285,6 +290,12 @@ void receive()
             targetRot= Eigen::Quaternionf(inmsg.quat.w , inmsg.quat.x , inmsg.quat.y , inmsg.quat.z);
 
         }
+        case pathMsg:{
+            PathMsg inmsg;
+            memcpy(&inmsg, buffer, n);
+            PM.addNewPath(inmsg.seg);
+
+        }
         break;
 
         case pingIn:
@@ -339,6 +350,7 @@ Eigen::Affine3f transformToEigen(Eigen::Vector3f pos, Eigen::Quaternionf quat){
 
 void runOdrive()
 {
+
     //start servos on endEffector
     ServoAxis pitch(EXTPIN1,35, -15, 1500, (1200.0*1.0425)/120.0, 6.0);
     ServoAxis yaw(EXTPIN2,60, -60, 1500, -(1200.0*1.0425)/120.0, 2.0);  
@@ -382,10 +394,9 @@ void runOdrive()
             yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
             int even = 1 ;
-    while(*A.homeSwitch_||*B.homeSwitch_ || *C.homeSwitch_) {
-       Thread::wait(1000); 
-        even = even * -1.0;
-            yaw.setAngle(40*even);
+    while(*B.homeSwitch_|| trigger) {
+       Thread::wait(100); 
+
        batteryV = OD1.readBattery();
        } // wait till user
     buffered_pc.printf("finding index\r\n");
@@ -394,10 +405,46 @@ void runOdrive()
     kin.activateMotors();
     buffered_pc.printf("homing motors\r\n");
     kin.homeMotors();
-    error += kin.goToPos(120,0,0);
+    //error += kin.goToPos(120,0,0);
 
 
-    //kin.goToAngles(pi/4,pi/4,pi/4);
+    kin.goToAngles(0.5,0.5,0.5);
+     //    while( trigger) {
+     //   Thread::wait(100); 
+
+     //   batteryV = OD1.readBattery();
+     //   }
+     //   kin.goToPos(100,0,0);
+     //   Thread::wait(1000);
+     //           while( trigger) {
+     //   Thread::wait(100); 
+
+     //   batteryV = OD1.readBattery();
+     //   }
+     //   kin.goToPos(150,0,0);
+     //   Thread::wait(1000);
+     //           while( trigger) {
+     //   Thread::wait(100); 
+
+     //   batteryV = OD1.readBattery();
+     //   }
+     //   kin.goToPos(200,0,0);
+     //   Thread::wait(1000);
+     //          while( trigger) {
+     //   Thread::wait(100); 
+
+     //   batteryV = OD1.readBattery();
+     //   }
+     //   kin.goToAngles(M_PI/8,M_PI/8,M_PI/8);
+     //   Thread::wait(1000);
+     //   while( trigger) {
+     //   Thread::wait(100); 
+
+     //   batteryV = OD1.readBattery();
+     //   }
+     //   kin.goToAngles(M_PI/4,M_PI/4,M_PI/4);
+     //   Thread::wait(1000);
+     // while(1){}
     Thread::wait(500);
     error = 1;
     while(error > 0){
@@ -482,7 +529,7 @@ void runOdrive()
                 up = targetRot._transformVector(up);
                 //side = targetRot.inverse()._transformVector(side);
 
-                target =  Eigen::Translation3f(up) * target;
+                //target =  Eigen::Translation3f(up) * target;
                 Eigen::Vector3f angRates = eskfPTR->lastImu_.gyro;
                 float ffGain = 0.025;
                 //buffered_pc.printf(" here x y z %f %f %f\r\n",eskfPTR->getPos()[0],eskfPTR->getPos()[1],eskfPTR->getPos()[2] );
@@ -630,11 +677,11 @@ void ESKFThread(){
     eskfPTR = new ESKF(
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
-                Vector3f(0, 0, 0), // init pos
+                Vector3f(0, 0, 1), // init pos
                 Vector3f(0, 0, 0), // init vel
-                Quaternionf(AngleAxisf(0.5f, Vector3f(1, 0, 0))), // init quaternion
-                Vector3f(0, 0, 0), // init accel bias
-                Vector3f(0, 0, 0) // init gyro bias
+                Quaternionf(AngleAxisf(0.0f, Vector3f(0, 0, 1))), // init quaternion
+                Vector3f(-1.26, -1.09, -1.977), // init accel bias
+                Vector3f(0.114, -0.01, 0) // init gyro bias
             ),
             ESKF::makeP(
                 SQ(sigma_init_pos) * I_3,
@@ -669,21 +716,25 @@ void ESKFThread(){
             lTime stamp(mocapLocation.time.seconds,mocapLocation.time.nSeconds);
             rosTime nowRos = timeTracker.getTime();
             lTime now(nowRos.seconds,nowRos.nSeconds);
-            eskfPTR->measurePos(pos,SQ(sigma_mocap_pos)*I_3,stamp,now);
+            float confidence  = mocapLocation.confidence;
+            eskfPTR->measurePos(pos,confidence * SQ(sigma_mocap_pos)*I_3,stamp,now);
             Thread::yield();
-            eskfPTR->measureQuat(quat,SQ(sigma_mocap_rot)*I_3,stamp,now);
+            eskfPTR->measureQuat(quat,confidence *SQ(sigma_mocap_rot)*I_3,stamp,now);
             Thread::yield();
 
             mocapCount ++;
-            // if(mocapCount == 200){
-
+             if(mocapCount%201 == 200){
+                Vector3f accBias = eskfPTR->getAccelBias();
+                Vector3f gyroBias = eskfPTR->getGyroBias();
+                buffered_pc.printf(" accBias x y z %f %f %f\r\n",accBias[0],accBias[1],accBias[2] );
+                buffered_pc.printf(" gyroBias x y z %f %f %f\r\n",gyroBias[0],gyroBias[1],gyroBias[2] );
             //     float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
             //     buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
             //     mocapCount = 0;
             //     lastMocapT = debugTimer.read_us();
             //     Vector3f posD = eskfPTR->getPos();
             //         buffered_pc.printf(" position x y z %f %f %f\r\n",posD[0],posD[1],posD[2] );
-            // }
+             }
         }
         //if(imuToSend==1){
         
@@ -758,12 +809,12 @@ int main()
 
 
     calibration.e = 58.095;
-    calibration.f = 60.722;
-    calibration.re = 150;
-    calibration.rf = 137.0;
-    calibration.Aoffset = 0.43 - 0.111701 + 0.0142;
-    calibration.Boffset = 0.43 - 0.111701 + 0.0142;
-    calibration.Coffset = 0.43 - 0.111701 + 0.0142;
+    calibration.f = 2*60.622;
+    calibration.re = 135;
+    calibration.rf = 133.0;
+    calibration.Aoffset = 0.105;
+    calibration.Boffset = 0.105;
+    calibration.Coffset = 0.105;
     calibration.gearRatio = 89.0/24.0;
     
     i2c.frequency(1000000);
@@ -777,7 +828,7 @@ int main()
     homeSwitchC.mode(PullUp);
     trigger.mode(PullUp);
 
-
+    odriveThread.start(runOdrive);
 
     //buffered_pc.printf("Controller IP Address is %s\r\n", eth.get_ip_address());
     Thread::wait(1000);
@@ -788,7 +839,7 @@ int main()
     ESKFT.start(ESKFThread);
     transmitterT.start(transmit);
     UVLed = 0;
-    odriveThread.start(runOdrive);
+    
     accelT.start(accelThread);
     printBattery.start(batteryThread);
 
