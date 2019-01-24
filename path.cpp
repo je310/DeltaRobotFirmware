@@ -12,6 +12,38 @@ PathManager::PathManager(){
     }
     errorCounter = 0;
     bezierDivs = 256;
+    pathCount = 0;
+
+    GunMarkerToBaseCentreM<<0.988085,-0.153316,-0.013475,0.0513067,0.153246,0.988169,-0.0061019,-0.0151392,0.0142511,0.0039642,0.999891,-0.049581,0,0,0,1;
+    GunMarkerToBaseCentreInvM<<0.988085,0.153246,0.0142511,-0.0476688,-0.153316,0.988169,0.0039642,0.0230228,-0.013475,-0.0061019,0.999891,0.0501746,0,0,0,1;
+    HeadCentreToPitchM<<1,0,0,0.0177,0,1,0,-0.011051,0,0,1,0.001949,0,0,0,1;
+    HeadCentreToPitchInvM<<1,0,0,-0.0177,0,1,0,0.011051,0,0,1,-0.001949,0,0,0,1;
+    PitchToYawM<<1,0,0,0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+    PitchToYawInvM<<1,0,0,-0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+    imuToOriginM<<1,0,0,0.085571,0,1,0,0.00393,0,0,1,-1.11022e-16,0,0,0,1;
+    imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.00393,0,0,1,1.11022e-16,0,0,0,1;
+    boardMarkerToCentreM<<0.967938,-0.0839857,0.236732,0.0163319,0.250649,0.261201,-0.932175,-0.0518183,0.0164548,0.961624,0.273877,-0.182812,0,0,0,1;
+    boardMarkerToCentreInvM<<0.967938,0.250649,0.0164548,0.000188067,-0.0839857,0.261201,0.961624,0.190703,0.236732,-0.932175,0.273877,-0.00210193,0,0,0,1;
+    yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02067,0,0,0,1;
+    yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
+
+    originToCentreM <<1,0,0,0.16,0,1,0,0,0,0,1,0,0,0,0,1;
+
+    GunMarkerToBaseCentre = GunMarkerToBaseCentreM;
+    GunMarkerToBaseCentreInv = GunMarkerToBaseCentreInvM;
+    HeadCentreToPitch = HeadCentreToPitchM;
+    HeadCentreToPitchInv = HeadCentreToPitchInvM;
+    PitchToYaw = PitchToYawM;
+    PitchToYawInv = PitchToYawInvM;
+    imuToOrigin = imuToOriginM;
+    imuToOriginInv = imuToOriginInvM;
+    boardMarkerToCentre = boardMarkerToCentreM;
+    boardMarkerToCentreInv = boardMarkerToCentreInvM;
+    yawToTip = yawToTipM;
+    yawToTipInv = yawToTipInvM;
+    originToCentre = originToCentreM;
+
+    DoriginToCentre = originToCentre * HeadCentreToPitch * PitchToYaw * yawToTip;
 }
 
 Eigen::Vector3f PathManager::cubicBezierDerivitive(Eigen::Vector3f start, Eigen::Vector3f CP1,Eigen::Vector3f CP2, Eigen::Vector3f end, float t){
@@ -192,13 +224,14 @@ Vector3f PathManager::getEndPos(segment seg){
     }
 }
 
-int PathManager::isClose(int ID, int end, Eigen::Vector3f currentPos, float margin){
+int PathManager::isClose(int ID, int end, Eigen::Affine3f currentPos, Eigen::Affine3f targetLocation, float margin){
     segment seg = hashLookupSegment(ID);
 
     Vector3f location;
-    if(end ==1) location = getStartPos(seg);
-    if(end ==2) location = getEndPos(seg);
-    float dist = (currentPos - location).norm();
+    if(end ==1) location = targetLocation * getStartPos(seg);
+    if(end ==2) location = targetLocation * getEndPos(seg);
+
+    float dist = (currentPos.translation() - location).norm();
     if(dist < margin) return 1;
     else return 0;
 
@@ -230,48 +263,29 @@ float PathManager::getT(segment seg, int end){
     if(end == 2) return seg.fromEndT;
 }
 
-int PathManager::reachable(int ID ,Vector3f currentPos, Vector3f centreEnvelope, float envelopeRadius,Vector3f &pos, int end){
+int PathManager::reachable(int ID ,Affine3f currentPos,Affine3f targetPos, Affine3f basePos, float envelopeRadius,Affine3f &pos, int end){
     segment seg = hashLookupSegment(ID);
-    return reachable(seg ,currentPos, centreEnvelope, envelopeRadius,pos, end);
+    return reachable(seg ,currentPos,targetPos, basePos, envelopeRadius,pos, end);
 }
 
 //returns whether there is a reachable part of the segment (from either end)
-int PathManager::reachable(segment seg ,Vector3f currentPos, Vector3f centreEnvelope, float envelopeRadius,Vector3f &pos, int &end){
-    Vector3f startPos, endPos; // start and end after adding any existing progress.
+int PathManager::reachable(segment seg ,Affine3f currentPos,Affine3f targetPos, Affine3f basePos, float envelopeRadius,Affine3f &pos, int &end){
+    Affine3f startPos, endPos, testPos; // start and end after adding any existing progress.
     int ret = 0;
     int startReachable = 0, endReachable = 0;
     int error = 0;
 
-    switch (seg.type) {
-    case line:{
-        Vector3f vec = seg.value2 - seg.value1; // vec from start to end of line.
-        startPos = seg.value1 + vec * seg.fromStartT;
-        endPos = seg.value2 - vec * seg.fromEndT;
+    endPos = targetPos * Eigen::Translation3f(getEndPos(seg));
+    startPos = targetPos * Eigen::Translation3f(getStartPos(seg));
 
+    float startDist;
+    float endDist;
 
+    startReachable = getReachability(basePos, currentPos, startPos,testPos, startDist, envelopeRadius);
+    //startReachable = getReachabilityFast(basePos, currentPos, startPos,  startDist, envelopeRadius, M_PI*(50.0/180.0));
+    endReachable = getReachability(basePos, currentPos, endPos,testPos, endDist, envelopeRadius);
+    //endReachable = getReachabilityFast(basePos, currentPos, endPos,  endDist, envelopeRadius, M_PI*(50.0/180.0));
 
-        break;
-    }
-
-    case circle:{
-        endPos = getEndPos(seg);
-        startPos = getStartPos(seg);
-
-        break;
-    }
-
-    case bezier:{
-        endPos = getEndPos(seg);
-        startPos = getStartPos(seg);
-        break;
-    }
-
-
-    }
-    float startDist = (startPos - currentPos).norm();
-    float endDist = (endPos -  currentPos).norm();
-    if((startPos - centreEnvelope).norm() < envelopeRadius) startReachable = 1;
-    if((endPos - centreEnvelope).norm() < envelopeRadius) endReachable = 1;
     if( startReachable == 1 && endReachable == 1){
         if(startDist <= endDist){
             end = 1;
@@ -310,6 +324,159 @@ int PathManager::reachable(segment seg ,Vector3f currentPos, Vector3f centreEnve
         error++;
     }
     return ret;
+
+}
+void PathManager::getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch, float& roll)
+{
+     unsigned int solution_number = 1;
+    Eigen::Vector3f m_el[3];
+   m_el[0] =  mat.row(0);
+   m_el[1] =  mat.row(1);
+   m_el[2] =  mat.row(2);
+    struct Euler
+    {
+        float yaw;
+        float pitch;
+        float roll;
+    };
+
+    Euler euler_out;
+    Euler euler_out2; //second solution
+    //get the pointer to the raw data
+
+    // Check that pitch is not at a singularity
+    // Check that pitch is not at a singularity
+    if (fabs(m_el[2].x()) >= 1)
+    {
+        euler_out.yaw = 0;
+        euler_out2.yaw = 0;
+
+        // From difference of angles formula
+        if (m_el[2].x() < 0)  //gimbal locked down
+        {
+          float delta = atan2(m_el[0].y(),m_el[0].z());
+            euler_out.pitch = M_PI / 2.0;
+            euler_out2.pitch = M_PI / 2.0;
+            euler_out.roll = delta;
+            euler_out2.roll = delta;
+        }
+        else // gimbal locked up
+        {
+          float delta = atan2(-m_el[0].y(),-m_el[0].z());
+            euler_out.pitch = -M_PI / 2.0;
+            euler_out2.pitch = -M_PI / 2.0;
+            euler_out.roll = delta;
+            euler_out2.roll = delta;
+        }
+    }
+    else
+    {
+        euler_out.pitch = - asin(m_el[2].x());
+        euler_out2.pitch = M_PI - euler_out.pitch;
+
+        euler_out.roll = atan2(m_el[2].y()/cos(euler_out.pitch),
+            m_el[2].z()/cos(euler_out.pitch));
+        euler_out2.roll = atan2(m_el[2].y()/cos(euler_out2.pitch),
+            m_el[2].z()/cos(euler_out2.pitch));
+
+        euler_out.yaw = atan2(m_el[1].x()/cos(euler_out.pitch),
+            m_el[0].x()/cos(euler_out.pitch));
+        euler_out2.yaw = atan2(m_el[1].x()/cos(euler_out2.pitch),
+            m_el[0].x()/cos(euler_out2.pitch));
+    }
+
+    if (solution_number == 1)
+    {
+        yaw = euler_out.yaw;
+        pitch = euler_out.pitch;
+        roll = euler_out.roll;
+    }
+    else
+    {
+        yaw = euler_out2.yaw;
+        pitch = euler_out2.pitch;
+        roll = euler_out2.roll;
+    }
+}
+
+int PathManager::getReachability(Eigen::Affine3f currentBasePos, Eigen::Affine3f currentHeadPos, Eigen::Affine3f targetPos,Eigen::Affine3f &posOut,  float &distance, float evelope){
+
+
+    int error = 0;
+    int inside = 0;
+         Eigen::Affine3f origin = currentBasePos* imuToOrigin;
+    Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
+    float r , p , y;
+    getEulerYPREigen(originToTarget.rotation(), y, p, r);
+    //make separate rotation matrix
+    float yawAng =  y;
+    float pitchAng = p;
+
+    Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
+    Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
+
+
+
+    Eigen::Affine3f kinOut = origin.inverse((Eigen::TransformTraits)1)
+                            * targetPos
+                            * yawToTipInv
+                            * yaw.inverse((Eigen::TransformTraits)1)
+                            * PitchToYawInv
+                            * pitch.inverse((Eigen::TransformTraits)1)
+                            * HeadCentreToPitchInv;
+    // Eigen::Matrix4f originM = currentPos.matrix() * imuToOriginM;
+    // Eigen::Matrix4f targetM = targetPos.matrix();
+    // Eigen::Matrix4f kinOutMat = origin.inverse()
+    //                             * targetM
+    //                             * yawToTipInvM
+    //                             * yaw.matrix().inverse()
+    //                             * PitchToYawInvM
+    //                             * pitch.matrix().inverse()
+    //                             * HeadCentreToPitchInvM;
+    // kinOut = kinOutMat;
+    Eigen::Vector3f kinTrans = kinOut.translation();
+
+    distance = (targetPos.translation() - currentHeadPos.translation()).norm();
+
+    Eigen::Vector3f centre(0.16,0,0);
+    float range = 0.07;
+    float dif = (kinTrans - centre).norm();
+    if(dif < evelope && 180*fabs(yawAng)/M_PI < 60 && 180*fabs(pitchAng)/M_PI < 60){
+        inside = 1;
+        posOut = currentHeadPos;
+    }
+    else{
+        inside = 0;
+        Eigen::Vector3f centreToTarget;
+                centreToTarget = kinTrans - centre;
+                kinTrans = centreToTarget.normalized()*range + centre;
+                kinOut.translation() = kinTrans;
+        posOut = origin * kinOut *HeadCentreToPitch * pitch * PitchToYaw * yaw * yawToTip;
+    }
+    return inside;
+}
+
+int PathManager::getReachabilityFast(Eigen::Affine3f currentBasePos, Eigen::Affine3f currentHeadPos, Eigen::Affine3f targetPos,  float &distance, float evelope, float minMaxAngle){
+
+
+    int error = 0;
+    int inside = 0;
+         Eigen::Affine3f origin = currentBasePos* imuToOrigin;
+    Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
+    Eigen::Affine3f centre = origin * DoriginToCentre;
+    float r , p , y;
+    getEulerYPREigen(originToTarget.rotation(), y, p, r);
+
+    Eigen::Vector3f centreToTarget = targetPos.translation() - (centre).translation();
+
+    distance = (currentHeadPos.translation() - targetPos.translation()).norm();
+
+    float dFromCentre = (centre.translation()- targetPos.translation()).norm();
+
+    if(fabs(r) < minMaxAngle && fabs(p) < minMaxAngle && dFromCentre < evelope) inside = 1;
+    else inside = 0;
+
+    return inside;
 
 }
 
@@ -397,17 +564,17 @@ int PathManager::stepTime(segment &seg,float deltaT, int end){
     return 0;
 }
 
-Eigen::Vector3f PathManager::getPos(int ID, int end){
+Eigen::Vector3f PathManager::getPos(int ID, int end, Eigen::Affine3f targetLocation){
     segment seg = hashLookupSegment(ID);
     if(end == 1){
-        return getStartPos(seg);
+        return targetLocation * getStartPos(seg);
     }
     if(end == 2){
-        return getEndPos(seg);
+        return targetLocation * getEndPos(seg);
     }
 }
 
-int PathManager::getClosestPath(Vector3f currentPos, Vector3f centreEnvelope, float envelopeRadius, int &end){
+int PathManager::getClosestPath(Eigen::Affine3f currentPos,Eigen::Affine3f baseLocation,Eigen::Affine3f targetLocation, float envelopeRadius, int &end){
     int closestIn = -1;
     int closestOut = -1;
     int closestInEnd = -1;
@@ -416,22 +583,22 @@ int PathManager::getClosestPath(Vector3f currentPos, Vector3f centreEnvelope, fl
 
     float distanceOut = std::numeric_limits<float>::max();
     for(int i = 0 ; i < PATH_BUFFER_SIZE; i++){
-        Vector3f pos;
+        Affine3f pos;
         int end = -1;
         if(array[i].complete == 0 && array[i].type != invalid){
-            int isIn = reachable(array[i],currentPos, centreEnvelope,envelopeRadius,pos, end);
+            int isIn = reachable(array[i],currentPos,targetLocation, baseLocation,envelopeRadius,pos, end);
             switch(isIn){
             case 1:
-                if( (currentPos-pos).norm() < distanceIn){
-                    distanceIn = (currentPos-pos).norm();
+                if( (currentPos.translation()-pos.translation()).norm() < distanceIn){
+                    distanceIn = (currentPos.translation()-pos.translation()).norm();
                     closestIn = i;
                     closestInEnd = end;
                 }
                 break;
 
             case 0:
-                if( (currentPos-pos).norm() < distanceOut){
-                    distanceOut = (currentPos-pos).norm();
+                if( (currentPos.translation()-pos.translation()).norm() < distanceOut){
+                    distanceOut = (currentPos.translation()-pos.translation()).norm();
                     closestOut = i;
                     closestOutEnd = end;
 
@@ -459,19 +626,45 @@ int PathManager::getClosestPath(Vector3f currentPos, Vector3f centreEnvelope, fl
     return -1;
 }
 
+void PathManager::constrainHead(Eigen::Affine3f &currentPos, Eigen::Affine3f basePos, float envelope){
+    Eigen::Affine3f posOut;
+    float distance;
+    int reachable  =  getReachabilityFast(basePos, currentPos, currentPos,  distance, envelope,M_PI*(50.0/180.0));
+    if(reachable) return;
+    getReachability(basePos,  currentPos, currentPos,posOut,distance,envelope);
+    currentPos = posOut;
+
+
+}
+
 int PathManager::pathType(int ID){
     segment seg = hashLookupSegment(ID);
     return seg.type;
 }
 
-int PathManager::setupTravel(Eigen::Vector3f start,Eigen::Vector3f end,Eigen::Vector3f normal, float speed){
+int PathManager::setupTravel(Affine3f start, Eigen::Vector3f end, Eigen::Affine3f targetLocation , Eigen::Vector3f normal, float speed, int toID, int toEnd){
     travelSeg.ID = -2;
     travelSeg.complete = 0;
     travelSeg.fromEndT = 0;
     travelSeg.fromStartT = 0;
     travelSeg.speed = speed;
     travelSeg.type = line;
-    travelSeg.value1 = start;
+    for(int i = 1; i < 4; i++){
+        travelSeg.startHints[i] = std::numeric_limits<uint16_t>::max();
+        travelSeg.endHints[i] = std::numeric_limits<uint16_t>::max();
+    }
+    travelSeg.endHintToEnd = 0;
+    travelSeg.startHintToEnd = 0 ;
+    travelSeg.startHints[0] = toID;
+    travelSeg.endHints[0]  = toID;
+    if(toEnd == 2){
+        setBit(travelSeg.endHintToEnd,0,1);
+    }
+    else{
+        setBit(travelSeg.endHintToEnd,0,0);
+    }
+    //travelSeg.value1 = (start * targetLocation.inverse()).translation();
+    travelSeg.value1 = (targetLocation.inverse()*start).translation() ;
     travelSeg.value2 = end;
     travelSeg.value3 = normal;
     return 1;
@@ -482,6 +675,7 @@ uint32_t PathManager::hash(uint32_t x) {
 }
 
 int PathManager::addNewPath(segment aPath){
+    pathCount++;
     int h = hashAllocate(aPath.ID);
     if(h >= 0){
         array[h] = aPath;
@@ -523,6 +717,16 @@ int PathManager::setComplete(int ID){
         travelSeg.complete = 1;
     }
     return -1; // this is not an ID in the list.
+}
+
+int PathManager::setNotComplete(){
+    for(int i = 0; i < PATH_BUFFER_SIZE; i++){
+        if(array[i].type == invalid) continue;
+        array[i].complete = 0;
+        array[i].fromStartT = 0;
+        array[i].fromEndT = 0;
+    }
+    return 0;
 }
 
 
@@ -578,4 +782,145 @@ int PathManager::hashAllocate(int ID){
         notFound--;
     }
     return -1; // there is no space left!
+}
+
+int  PathManager::getBit(uint32_t val, int bit){
+    return (val & ( 1 << bit )) >> bit;
+}
+
+void PathManager::setBit(uint32_t &val, int bit, int to){
+    uint32_t mask = 1 << bit;
+    if(to == 0){
+
+        val &= ~mask;
+    }
+    if(to == 1){
+        val |= mask;
+    }
+}
+
+void PathManager::addHintsClosest(){
+    for(int i = 0; i < PATH_BUFFER_SIZE; i++){
+        if(array[i].type == invalid) continue;
+        int closestEnd[HINT_NUMBER];
+        int closestStart[HINT_NUMBER] ;
+        float valuesEnd[HINT_NUMBER] ;
+        float valuesStart[HINT_NUMBER] ;
+
+        for(int t = 0; t <HINT_NUMBER; t++ ){
+            closestEnd[t] = std::numeric_limits<u_int16_t>::max();
+            closestStart[t] =std::numeric_limits<u_int16_t>::max();
+            valuesEnd[t] =std::numeric_limits<float>::max();
+            valuesStart[t] = std::numeric_limits<float>::max();
+
+        }
+        uint32_t endHintToEnd = 0;
+        uint32_t startHintToEnd = 0;
+        for(int j = 0; j < PATH_BUFFER_SIZE; j ++){
+            if(array[j].type == invalid) continue;
+            if(j != i){
+               int theEndStart = 0;
+               int theEndEnd = 0;
+               float startDist = (getStartPos(array[i]) - getStartPos(array[j])).norm();
+               float startDist2 = (getStartPos(array[i]) - getEndPos(array[j])).norm();
+               if (startDist2 < startDist){
+                   theEndStart = 1;
+                   startDist = startDist2;
+               }
+               float endDist = (getEndPos(array[i]) - getStartPos(array[j])).norm();
+               float endDist2 = (getEndPos(array[i]) - getEndPos(array[j])).norm();
+               if (endDist2 < endDist){
+                   theEndEnd  = 1;
+                   endDist = endDist2;
+               }
+
+               int ranking = HINT_NUMBER;
+               for(; ranking > 0; ranking --){
+                   if(valuesEnd[ranking - 1] < endDist) break;
+               }
+               if (ranking != HINT_NUMBER){
+                   for(int pointer = HINT_NUMBER; pointer> ranking; pointer --){
+                       valuesEnd[pointer-1] = valuesEnd[pointer-2];
+                       closestEnd[pointer-1] = closestEnd[pointer-2];
+                       setBit(endHintToEnd,pointer-1,getBit(endHintToEnd,pointer-2));
+                   }
+                   closestEnd[ranking] = j;
+                   setBit(endHintToEnd,ranking,theEndEnd);
+                   valuesEnd[ranking] = endDist;
+               }
+               ranking = HINT_NUMBER;
+               for(; ranking > 0; ranking --){
+                   if(valuesStart[ranking - 1] < startDist) break;
+               }
+               if (ranking != HINT_NUMBER){
+                   for(int pointer = HINT_NUMBER; pointer> ranking; pointer --){
+                       valuesStart[pointer-1] = valuesStart[pointer-2];
+                       closestStart[pointer-1] = closestStart[pointer-2];
+                       setBit(startHintToEnd,pointer-1,getBit(startHintToEnd,pointer-2));
+                   }
+                   closestStart[ranking] = j;
+                   setBit(startHintToEnd,ranking,theEndStart);
+                   valuesStart[ranking] = startDist;
+               }
+
+            }
+
+        }
+        for(int m = 0; m < HINT_NUMBER; m++){
+            array[i].startHints[m] = array[closestStart[m]].ID;
+            array[i].endHints[m] = array[closestEnd[m]].ID;
+        }
+        array[i].startHintToEnd = startHintToEnd;
+        array[i].endHintToEnd= endHintToEnd;
+
+    }
+}
+
+int PathManager::getBestHint(int ID,int &end){
+    if(ID >=0 || ID == -2){
+        segment thisSeg = hashLookupSegment(ID);
+        uint32_t hintEnds;
+        if(thisSeg.fromEndT + 0.01 >= 1.0) hintEnds =thisSeg.startHintToEnd;
+        if(thisSeg.fromStartT + 0.01 >= 1.0) hintEnds = thisSeg.endHintToEnd;
+        for( int i = 0 ; i < HINT_NUMBER; i++){
+            segment ourSeg;
+            if(end ==2) ourSeg = hashLookupSegment(thisSeg.startHints[i]);
+            if(end ==1) ourSeg = hashLookupSegment(thisSeg.endHints[i]);
+            int particularEnd = getBit(hintEnds,i);
+            if(particularEnd == 0){
+                if(ourSeg.fromStartT == 0 && !ourSeg.complete){
+                    end = 1;
+                    return ourSeg.ID;
+                }
+            }
+            if(particularEnd == 1){
+                if(ourSeg.fromEndT == 0 && !ourSeg.complete){
+                    end = 2;
+                    return ourSeg.ID;
+                }
+            }
+
+
+        }
+
+    }
+    return -1;
+}
+int  PathManager::finishedOnEnd(int ID){
+    segment thisSeg = hashLookupSegment(ID);
+    float range = 0.01;
+
+    if(thisSeg.fromEndT + range >= 1 || thisSeg.fromStartT + range >= 1){
+        return 1;
+    }
+    return 0;
+}
+
+std::vector<segment> PathManager::returnVector(){
+    std::vector<segment> list;
+    for(int i = 0; i < PATH_BUFFER_SIZE; i++){
+        if(array[i].type == invalid) continue;
+        list.push_back(array[i]);
+    }
+    return list;
 }

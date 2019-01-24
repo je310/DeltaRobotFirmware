@@ -1,5 +1,15 @@
 
 #include "kinematics.h"
+
+#define RED   "\x1B[31m"
+#define GRN   "\x1B[32m"
+#define YEL   "\x1B[33m"
+#define BLU   "\x1B[34m"
+#define MAG   "\x1B[35m"
+#define CYN   "\x1B[36m"
+#define WHT   "\x1B[37m"
+#define RESET "\x1B[0m"
+
 extern BufferedSerial buffered_pc;
 Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis* pitchAx_ ,calVals calibration_)
 {
@@ -24,18 +34,20 @@ Kinematics::Kinematics(Axis* A_, Axis* B_, Axis* C_, ServoAxis* yawAx_,ServoAxis
     DK = new DeltaKinematics<float>(dim);
 
 // produced automatically from the delta gun ros package. 
-GunMarkerToBaseCentreM<<0.988085,-0.153316,-0.013475,0.0513067,0.153246,0.988169,-0.0061019,-0.0151392,0.0142511,0.0039642,0.999891,-0.049581,0,0,0,1;
-GunMarkerToBaseCentreInvM<<0.988085,0.153246,0.0142511,-0.0476688,-0.153316,0.988169,0.0039642,0.0230228,-0.013475,-0.0061019,0.999891,0.0501746,0,0,0,1;
-HeadCentreToPitchM<<1,0,0,0.0177,0,1,0,-0.011051,0,0,1,0.001949,0,0,0,1;
-HeadCentreToPitchInvM<<1,0,0,-0.0177,0,1,0,0.011051,0,0,1,-0.001949,0,0,0,1;
-PitchToYawM<<1,0,0,0.0081,0,1,0,0,0,0,1,0,0,0,0,1;
-PitchToYawInvM<<1,0,0,-0.0081,0,1,0,0,0,0,1,0,0,0,0,1;
-imuToOriginM<<1,0,0,0.085571,0,1,0,0.00393,0,0,1,-1.11022e-16,0,0,0,1;
-imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.00393,0,0,1,1.11022e-16,0,0,0,1;
-boardMarkerToCentreM<<0.967938,-0.0839857,0.236732,0.0163319,0.250649,0.261201,-0.932175,-0.0518183,0.0164548,0.961624,0.273877,-0.182812,0,0,0,1;
-boardMarkerToCentreInvM<<0.967938,0.250649,0.0164548,0.000188067,-0.0839857,0.261201,0.961624,0.190703,0.236732,-0.932175,0.273877,-0.00210193,0,0,0,1;
-yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02067,0,0,0,1;
-yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
+    GunMarkerToBaseCentreM<<0.988085,-0.153316,-0.013475,0.0513067,0.153246,0.988169,-0.0061019,-0.0151392,0.0142511,0.0039642,0.999891,-0.049581,0,0,0,1;
+    GunMarkerToBaseCentreInvM<<0.988085,0.153246,0.0142511,-0.0476688,-0.153316,0.988169,0.0039642,0.0230228,-0.013475,-0.0061019,0.999891,0.0501746,0,0,0,1;
+    HeadCentreToPitchM<<1,0,0,0.0177,0,1,0,-0.011051,0,0,1,0.001949,0,0,0,1;
+    HeadCentreToPitchInvM<<1,0,0,-0.0177,0,1,0,0.011051,0,0,1,-0.001949,0,0,0,1;
+    PitchToYawM<<1,0,0,0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+    PitchToYawInvM<<1,0,0,-0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+    imuToOriginM<<1,0,0,0.085571,0,1,0,0.00393,0,0,1,-1.11022e-16,0,0,0,1;
+    imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.00393,0,0,1,1.11022e-16,0,0,0,1;
+    boardMarkerToCentreM<<0.967938,-0.0839857,0.236732,0.0163319,0.250649,0.261201,-0.932175,-0.0518183,0.0164548,0.961624,0.273877,-0.182812,0,0,0,1;
+    boardMarkerToCentreInvM<<0.967938,0.250649,0.0164548,0.000188067,-0.0839857,0.261201,0.961624,0.190703,0.236732,-0.932175,0.273877,-0.00210193,0,0,0,1;
+    yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02067,0,0,0,1;
+    yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
+
+    originToCentreM <<1,0,0,0.16,0,1,0,0,0,0,1,0,0,0,0,1;
 
     GunMarkerToBaseCentre = GunMarkerToBaseCentreM;
     GunMarkerToBaseCentreInv = GunMarkerToBaseCentreInvM;
@@ -49,6 +61,9 @@ yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
     boardMarkerToCentreInv = boardMarkerToCentreInvM;
     yawToTip = yawToTipM;
     yawToTipInv = yawToTipInvM;
+    originToCentre = originToCentreM;
+
+    DoriginToCentre = originToCentre * HeadCentreToPitch * PitchToYaw * yawToTip;
 
 
 }
@@ -127,9 +142,58 @@ void Kinematics::getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch,
     }
 }
 
+// int Kinematics::getReachability(Eigen::Affine3f currentBasePos, Eigen::Affine3f currentHeadPos, Eigen::Affine3f targetPos,  float &distance){
+//     int error = 0;
+//     int inside = 0;
+//          Eigen::Affine3f origin = currentBasePos* imuToOrigin;
+//     Eigen::Affine3f originToTarget = origin.inverse((Eigen::TransformTraits)1) * targetPos;
+//     float r , p , y;
+//     getEulerYPREigen(originToTarget.rotation(), y, p, r);
+//     //make separate rotation matrix
+//     float yawAng =  y;
+//     float pitchAng = p;
+
+//     Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
+//     Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
+
+    
+
+//     Eigen::Affine3f kinOut = origin.inverse((Eigen::TransformTraits)1)
+//                             * targetPos
+//                             * yawToTipInv
+//                             * yaw.inverse((Eigen::TransformTraits)1)
+//                             * PitchToYawInv
+//                             * pitch.inverse((Eigen::TransformTraits)1)
+//                             * HeadCentreToPitchInv;
+//     // Eigen::Matrix4f originM = currentPos.matrix() * imuToOriginM;
+//     // Eigen::Matrix4f targetM = targetPos.matrix();
+//     // Eigen::Matrix4f kinOutMat = origin.inverse()
+//     //                             * targetM
+//     //                             * yawToTipInvM
+//     //                             * yaw.matrix().inverse()
+//     //                             * PitchToYawInvM
+//     //                             * pitch.matrix().inverse()
+//     //                             * HeadCentreToPitchInvM;
+//     // kinOut = kinOutMat;
+//     Eigen::Vector3f kinTrans = kinOut.translation();
+
+//     distance = targetPos.translation() - currentHeadPos.translation();
+
+//     Eigen::Vector3f centre(0.16,0,0);
+//     float range = 0.070;
+//     float dif = (kinTrans - centre).norm();
+//     if(dif < range && yawAx->anglePermissable(180.0*(yawAng)/M_PI) && pitchAx->anglePermissable(180.0*(pitchAng)/M_PI)){
+//         inside = 1;
+//     }
+//     else{
+//         inside = 0;
+//     }
+//     return inside;
+// }
+
 // this function will calculate the actuation neccessary  to get to a world position. 
 // current pos is the position of the IMU
-int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos,Eigen::Vector3f angRates,float ffGain){
+int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos,Eigen::Vector3f angRates, Eigen::Affine3f outPos, float ffGain){
 
     int error = 0;
          Eigen::Affine3f origin = currentPos* imuToOrigin;
@@ -163,7 +227,7 @@ int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetP
     //                             * HeadCentreToPitchInvM;
     // kinOut = kinOutMat;
     Eigen::Vector3f kinTrans = kinOut.translation();
-
+    kinOut.translation() = kinTrans;
     
 
     Eigen::Vector3f centre(0.16,0,0);
@@ -174,6 +238,7 @@ int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetP
         goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
         error+=yawAx->setAngle(180*(yawAng - ffGain * angRates[2])/3.14);
         error+=pitchAx->setAngle(180*(pitchAng - ffGain * angRates[1])/3.14);
+        outPos = targetPos;
         //buffered_pc.printf("kin x y z %f %f %f",kinTrans[0]*1000,kinTrans[1]*1000,kinTrans[2]*1000);
     }
     else{
@@ -183,6 +248,7 @@ int Kinematics::goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetP
         centreToTarget = kinTrans - centre;
         kinTrans = centreToTarget.normalized()*range + centre;
         goToPos(kinTrans[0]*1000, kinTrans[1]*1000, kinTrans[2]*1000);
+        outPos = origin * kinOut * HeadCentreToPitch * pitch * PitchToYaw * yaw * yawToTip;
         //buffered_pc.printf("kin x y z %f %f %f",kinTrans[0]*1000,kinTrans[1]*1000,kinTrans[2]*1000);
         yawAx->setAngle(180*(yawAng - ffGain * angRates[2])/3.14);
         pitchAx->setAngle(180*(pitchAng - ffGain * angRates[1])/3.14);
@@ -304,7 +370,10 @@ int Kinematics::setSafeParams(){
     Thread::wait(1);
     error +=A->setParams(15004, 0.00025, 4000, 250,0.001);
     Thread::wait(1);
-     buffered_pc.printf("there were %d errors in setting perameters",error);
+    if(error == 0)
+        buffered_pc.printf(GRN"there were %d errors in setting perameters\r\n"RESET,error);
+    else 
+        buffered_pc.printf(RED"there were %d errors in setting perameters\r\n"RESET,error);
      return error;
     }
     
@@ -316,7 +385,10 @@ int Kinematics::setSafeParams(){
     Thread::wait(1);
     error +=A->setParams(40000, 0.00032, 4000, 300,0.001);
     Thread::wait(1);
-     buffered_pc.printf("there were %d errors in setting perameters",error);
+    if(error == 0)
+        buffered_pc.printf(GRN"there were %d errors in setting perameters\r\n"RESET,error);
+    else 
+        buffered_pc.printf(RED"there were %d errors in setting perameters\r\n"RESET,error);
      return error;
     }
 

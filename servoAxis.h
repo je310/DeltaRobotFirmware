@@ -4,6 +4,7 @@
 #include "mbed.h"
 
 #include "BufferedSerial.h"
+#include "FastPWM.h"
 
 class ServoAxis
 {
@@ -11,9 +12,10 @@ public:
 
     ServoAxis(PinName pin,float maxAngle_, float minAngle, float middleUs_, float usPerDeg_, float degOffset_);
     int setAngle(float angle);
+    int anglePermissable(float angle);
 
 private:
-    PwmOut* pwm;
+    FastPWM* pwm;
     float middleUs;
     float usPerDeg;
     float degOffset;

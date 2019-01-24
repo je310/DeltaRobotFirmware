@@ -18,6 +18,15 @@
 #include "lTime.h"
 #include "path.h"
 
+#define RED   "\x1B[31m"
+#define GRN   "\x1B[32m"
+#define YEL   "\x1B[33m"
+#define BLU   "\x1B[34m"
+#define MAG   "\x1B[35m"
+#define CYN   "\x1B[36m"
+#define WHT   "\x1B[37m"
+#define RESET "\x1B[0m"
+
 //pin definiitions
 #define EXTPIN1 PB_5  //pwm spi1_mosii
 #define EXTPIN2 PB_15 // PWM spi2 mosi
@@ -42,18 +51,20 @@ using std::string;
 Timer debugTimer;
 
 Thread transmitterT(osPriorityNormal, 2 * 1024,NULL, "transmitterThread");
-Thread receiverT(osPriorityNormal, 32 * 1024,NULL, "receiverThread");
+Thread receiverT(osPriorityNormal, 8 * 1024,NULL, "receiverThread");
 Thread odriveThread(osPriorityBelowNormal, 16 * 1024,NULL, "OdriveThread");
-Thread accelT(osPriorityAboveNormal, 32 * 1024,NULL, "AccelThread");
+Thread accelT(osPriorityAboveNormal, 8 * 1024,NULL, "AccelThread");
 
 Thread printBattery(osPriorityNormal, 2 * 1024,NULL, "printBatteryThread");
 Thread ESKFT(osPriorityNormal, 64 * 1024,NULL, "ESKFThread") /* 32K stack */;
+Thread performanceThread(osPriorityBelowNormal, 8 * 1024,NULL, "OdriveThread");
 
 
 //io declarations
 DigitalOut led1(LED1);
 DigitalOut UVLed(EXTPIN4);
 DigitalOut homeGND(PF_5);
+DigitalOut extGND(EXTPIN6);
 DigitalIn homeSwitchA(PA_3);
 DigitalIn homeSwitchB(PC_0);
 DigitalIn homeSwitchC(PC_3);
@@ -113,6 +124,14 @@ int accelPending = 0;
 //Path management 
 
 PathManager PM;
+
+//performance tracking;
+
+int imuCount = 0;
+int updateCount = 0;
+int estimateCount = 0;
+int motorCount = 0;
+lTime lastPerformanceT;
 
 
 typedef struct{
@@ -193,15 +212,17 @@ void receive()
     //socket.set_blocking(false);
     
 
- 
-    buffered_pc.printf("Ethernet returned %d \n\r", isCon);
+    if(isCon)
+        buffered_pc.printf(RED"Ethernet returned %d \n\r"RESET, isCon);
+    else
+        buffered_pc.printf(GRN"Ethernet returned %d \n\r"RESET, isCon);
     Thread::wait(100);
     if(isCon !=0) eth.disconnect();
     while(isCon != 0) {
         Thread::yield();
     }
     socket.open(&eth);
-    buffered_pc.printf("Ethernet is connected at %s \n\r", eth.get_ip_address());
+    buffered_pc.printf(GRN"Ethernet is connected at %s \n\r"RESET, eth.get_ip_address());
     Thread::wait(100);
     SocketAddress receive;
     //UDPSocket socket(&eth);
@@ -212,7 +233,7 @@ void receive()
     char buffer[256];
     
     
-        buffered_pc.printf("starting receive loop");
+        buffered_pc.printf(GRN"starting receive loop\r\n"RESET);
         rosTime now;
         
         
@@ -243,7 +264,7 @@ void receive()
 
                 
                 if(now.seconds < 10000){
-                    buffered_pc.printf("Hard resetting time to  %ds and %dns \n\r",inmsg.time.seconds,inmsg.time.nSeconds);
+                    buffered_pc.printf(BLU"Hard resetting time to  %ds and %dns \n\r"RESET,inmsg.time.seconds,inmsg.time.nSeconds);
                     timeTracker.hardReset(inmsg.time.seconds,inmsg.time.nSeconds);
                 }
 
@@ -289,10 +310,13 @@ void receive()
             targetPos << inmsg.posStart.x , inmsg.posStart.y, inmsg.posStart.z;
             targetRot= Eigen::Quaternionf(inmsg.quat.w , inmsg.quat.x , inmsg.quat.y , inmsg.quat.z);
 
+
         }
+        break;
         case pathMsg:{
             PathMsg inmsg;
             memcpy(&inmsg, buffer, n);
+            buffered_pc.printf("Got %d \r\n", inmsg.seg.ID);
             PM.addNewPath(inmsg.seg);
 
         }
@@ -300,16 +324,16 @@ void receive()
 
         case pingIn:
         
-            buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
+            buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
         
             break;
 
         case locationIn:
-                buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
+                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
             break;
 
         case userIn:
-                buffered_pc.printf("This is an outgoing type !! Type: %d  \n\r",typeInt );
+                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
             break;
 
         default: ;
@@ -352,8 +376,8 @@ void runOdrive()
 {
 
     //start servos on endEffector
-    ServoAxis pitch(EXTPIN1,35, -15, 1500, (1200.0*1.0425)/120.0, 6.0);
-    ServoAxis yaw(EXTPIN2,60, -60, 1500, -(1200.0*1.0425)/120.0, 2.0);  
+    ServoAxis pitch(EXTPIN1,35, -15, 1510, -(1200.0)/120.0, 6.0);
+    ServoAxis yaw(EXTPIN2,60, -60, 1445, (1200.0)/120.0, 2.0);  
 //    while(1) {
 //        pitch.setAngle(30);
 //        yaw.setAngle(30);
@@ -377,16 +401,22 @@ void runOdrive()
     error += A.test();
     error +=B.test();
     error +=C.test();
-    buffered_pc.printf("there were %d errors in the read/write\r\n",error);
+    if(error == 0)
+        buffered_pc.printf(GRN"there were %d errors in the read/write\r\n"RESET,error);
+    else
+        buffered_pc.printf(RED"there were %d errors in the read/write\r\n"RESET,error);
     Kinematics kin(&A, &B, &C,&yaw, &pitch, calibration); // the Kinematics class contains everything
-    buffered_pc.printf("setting motors to idle\r\n");
+    buffered_pc.printf(BLU"setting motors to idle\r\n"RESET);
     kin.goIdle();
     kin.goIdle();
     error = 1;
     while(error > 0){
         error = kin.setSafeParams();
         Thread::wait(100);
-        buffered_pc.printf("there were %d errors in the read/write\r\n",error);
+        if(error == 0)
+            buffered_pc.printf(GRN"there were %d errors in the read/write\r\n"RESET,error);
+        else
+            buffered_pc.printf(RED"there were %d errors in the read/write\r\n"RESET,error);
         Thread::wait(100);
     }
 
@@ -394,16 +424,21 @@ void runOdrive()
             yaw.setAngle(0);
 //    kin.goIdle();//for some reason we need to do it multiple times!
             int even = 1 ;
+            float t = 0;
     while(*B.homeSwitch_|| trigger) {
-       Thread::wait(100); 
+       Thread::wait(10); 
+       // t+= 0.01;
+       //  pitch.setAngle(25.0*sin(t));
+       //  yaw.setAngle(25.0*cos(t));
 
-       batteryV = OD1.readBattery();
-       } // wait till user
-    buffered_pc.printf("finding index\r\n");
+        batteryV = OD1.readBattery();
+    } // wait till user
+    buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
+    buffered_pc.printf(BLU"finding index\r\n"RESET);
     kin.findIndex();
-    buffered_pc.printf("activating motors\r\n");
+    buffered_pc.printf(BLU"activating motors\r\n"RESET);
     kin.activateMotors();
-    buffered_pc.printf("homing motors\r\n");
+    buffered_pc.printf(BLU"homing motors\r\n"RESET);
     kin.homeMotors();
     //error += kin.goToPos(120,0,0);
 
@@ -450,7 +485,7 @@ void runOdrive()
     while(error > 0){
         error = kin.setFastParams();
         Thread::wait(100);
-        buffered_pc.printf("there were %d errors in the read/write\r\n",error);
+        buffered_pc.printf(RED"there were %d errors in the read/write\r\n"RESET,error);
         Thread::wait(100);
     }
     Thread::wait(1000);
@@ -466,7 +501,17 @@ void runOdrive()
     mid/= 2;
     float span = mid - min;
     float radius = 40;
+    float envRad = 0.07;
     int loopCounter = 0;
+    //Eigen::Vector3f current(0,0,0);
+    int end = 1;
+    int needNewSeg = 0;
+    float findHorizon = 0.8;
+    int retID = -1;
+    int wasCompleted = 0;
+    rosTime rTimeNow = timeTracker.getTime();
+    lTime lastTime(rTimeNow.seconds,rTimeNow.nSeconds);
+    Eigen::Affine3f current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
     while(true) {
         loopCounter++;
         int count = 0;
@@ -489,6 +534,9 @@ void runOdrive()
             yaw.setAngle(25.0*cos(i));
             //int error = kin.goToPos(0,0,k);
             if(i > 2*pi) i = 0;
+            PM.setNotComplete();
+
+            current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
             Thread::wait(1);
         }
         else{
@@ -507,42 +555,130 @@ void runOdrive()
             }
             if(updatedESKF == 1){
                 updatedESKF = 0;
+                motorCount++;
                 if(loopCounter % 1000 == 0){
                     Vector3f pos = eskfPTR->getPos();
-                    buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
+                    //buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
                 }
+
                 Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
+                Eigen::Affine3f origin = here* kin.imuToOrigin;
+                Eigen::Affine3f centreOffsetInv;
+                centreOffsetInv =  Eigen::Translation3f(Eigen::Vector3f(-0.28,0,0));
+                
+                //centreLocation.translation() = Eigen::Vector3f(0,0,0);
                 //Eigen::Affine3f target = Eigen::Translation3f(0,0,1) * Eigen::Quaternionf(1,0,0,0);
                 Eigen::Affine3f target = Eigen::Translation3f(targetPos) * targetRot;
+                Eigen::Affine3f centreLocation = target.inverse()*here*centreOffsetInv;
                 Eigen::Quaternionf targetRotInv = targetRot.inverse();
-                Eigen::Vector3f up;
-                up << 0,1,0;
-                Eigen::Vector3f side ;
-                side << 0,0,1;
-                                rosTime rTime = timeTracker.getTime();
-                lTime lt(rTime.seconds,rTime.nSeconds);
+
+                // path finding section 
+        // path finding section
+      if(needNewSeg){
+           if(wasCompleted){
+               wasCompleted = 0;
+               retID = PM.getBestHint(retID,end);
+               if(retID == -1){
+                   retID = PM.getClosestPath(current,here,target,findHorizon*envRad,end);
+                   buffered_pc.printf("from searchID:%d\r\n", retID);
+               }
+               else{
+                buffered_pc.printf(GRN"From best hint ID:%d\r\n"RESET, retID);
+               }
+           }
+           else{
+                retID = PM.getClosestPath(current,here,target,findHorizon*envRad,end);
+                buffered_pc.printf("not end from search ID:%d\r\n", retID);  //here
+           }
+           //std::cout << "id" << retID << std::endl;
+           if(!PM.isClose(retID,end,current,target,0.002)){
+               if(end == 1){
+                   PM.setupTravel(current,PM.getStartPos(retID),target,PM.getNormal(retID),0.1,retID,end);
+               }
+               if(end == 2){
+                   PM.setupTravel(current,PM.getEndPos(retID),target,PM.getNormal(retID),0.1,retID,end);
+               }
+               end = 1;
+               buffered_pc.printf("travelling to  ID:%d\r\n", retID);
+               retID = -2;
+
+           }
+           needNewSeg = 0;
+           
+       }
+       //PM.constrainHead(current,here, envRad); //// should I be constraining the head.
+                      Eigen::Affine3f posTest;
+
+                   rosTime rNow = timeTracker.getTime();
+                    lTime nowTime(rNow.seconds,rNow.nSeconds);
+                    float dt = (nowTime - lastTime).toSec();
+                    lastTime = nowTime;
+                    if(dt > 0.01){
+                        buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
+                      dt = 0.01;  
+                    } 
+                    if(dt < 0.001){
+                        buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
+                        dt = 0.001;
+                    }
+                    int isReach = PM.reachable(retID,current,target,here, envRad,posTest,end);
+                    if(!isReach){
+                        buffered_pc.printf(RED"cannot reach:%d \r\n"RESET, retID);
+                    }
+       if(isReach && !PM.isComplete(retID)){
+           PM.stepTime(retID,dt,end);
+           current.translation() = PM.getPos(retID,end,target);
+       }
+       else{
+           if(PM.isComplete(retID) && PM.finishedOnEnd(retID)){
+            wasCompleted =1;
+            buffered_pc.printf(GRN"completed on end ID:%d\r\n"RESET, retID);
+           }
+           else{
+            buffered_pc.printf(RED"unreachable for now. ID:%d\r\n"RESET, retID); //here
+           } 
+           needNewSeg = 1;
+       }
+
+                // end of path finding section. 
+                // Eigen::Vector3f up;
+                // up << 0,1,0;
+                // Eigen::Vector3f side ;
+                // side << 0,0,1;
+                //                 rosTime rTime = timeTracker.getTime();
+                // lTime lt(rTime.seconds,rTime.nSeconds);
+                // //up = targetRot._transformVector(up);
+                // up = 0.05*cos(2.0*lt.toSec())*up;
+                // //side = targetRot._transformVector(side);
+                // side = 0.05*sin(2.0*lt.toSec())*side;
+                // up = up + side;
                 //up = targetRot._transformVector(up);
-                up = 0.05*cos(2.0*lt.toSec())*up;
-                //side = targetRot._transformVector(side);
-                side = 0.05*sin(2.0*lt.toSec())*side;
-                up = up + side;
-                up = targetRot._transformVector(up);
+                //current = targetRot._transformVector(current);
                 //side = targetRot.inverse()._transformVector(side);
 
-                //target =  Eigen::Translation3f(up) * target;
+                target =  current;
+                if(loopCounter%1000 == 0){
+                   // buffered_pc.printf("here %f,%f,%f   target %f,%f,%f \r\n", here.translation()[0],here.translation()[1],here.translation()[2],target.translation()[0],target.translation()[1],target.translation()[2]);
+                }
                 Eigen::Vector3f angRates = eskfPTR->lastImu_.gyro;
                 float ffGain = 0.025;
                 //buffered_pc.printf(" here x y z %f %f %f\r\n",eskfPTR->getPos()[0],eskfPTR->getPos()[1],eskfPTR->getPos()[2] );
                 //buffered_pc.printf(" hereQ w x y z %f %f %f %f\r\n",eskfPTR->getQuat().coeffs()[0],eskfPTR->getQuat().coeffs()[1],eskfPTR->getQuat().coeffs()[2],eskfPTR->getQuat().coeffs()[2]  );
-                int notReachable = kin.goToWorldPos(here,target, angRates, ffGain);
-                if (notReachable) UVLed = 0;
+                int notReachable = kin.goToWorldPos(here,target, angRates, posTest, ffGain);
+                current = posTest;
+                if (notReachable || retID == -2 || retID == -1) UVLed = 0;
                 else UVLed =1;
             }
-    }
+        }
         Thread::signal_wait(0x1);
-        //Thread::yield();
+        Thread::yield();
         if(loopCounter % 200000 == 0) {
+            if(PM.pathCount > 0)
+                buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
+            else
+                buffered_pc.printf(RED"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
             batteryV = OD1.readBattery();
+
         }
     }
 
@@ -564,12 +700,12 @@ void accelThread()
     InterruptIn intPin(ACCEL_INT);
     accelPower = 1;
     uint8_t whoami = mpu.readByte(MPU6050_ADDRESS, WHO_AM_I_MPU6050);  // Read WHO_AM_I register for MPU-6050
-    buffered_pc.printf("I AM 0x%x\n\r", whoami);
-    buffered_pc.printf("I SHOULD BE 0x68\n\r");
+    buffered_pc.printf(BLU"I AM 0x%x\n\r"RESET, whoami);
+    buffered_pc.printf(BLU"I SHOULD BE 0x68\n\r"RESET);
     mpu.resetMPU6050(); // Reset registers to default in preparation for device calibration
     //mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers
     mpu.initMPU6050();
-    buffered_pc.printf("MPU6050 initialized for active data mode....\n\r"); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
+    buffered_pc.printf(BLU"MPU6050 initialized for active data mode....\n\r"RESET); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
     intPin.rise(&accelInterrupt);
     Timer t;
     t.start();
@@ -641,6 +777,7 @@ void accelThread()
         //Thread::yield();
         accelPending = 0;
         Thread::signal_wait(0x1);
+        imuCount++;
         accelPending = 1;
 
     }
@@ -650,7 +787,10 @@ void batteryThread()
 {
     while(1) {
         Thread::wait(5000);
-        buffered_pc.printf("batteryVoltage = %f\n\r", batteryV);
+        if(batteryV > 19)
+            buffered_pc.printf(GRN"batteryVoltage = %f\n\r"RESET, batteryV);
+        else
+            buffered_pc.printf(RED"batteryVoltage = %f\n\r"RESET, batteryV);
     }
 
 
@@ -700,12 +840,16 @@ void ESKFThread(){
     int imuCount = 0;
     int mocapCount = 0;
     float degToRad = M_PI/180.0;
+
+    AngleAxisf xRot(0*degToRad,Eigen::Vector3f(1,0,0));
+    AngleAxisf zRot(0*degToRad,Eigen::Vector3f(0,0,1));
+    AngleAxisf yRot(-1.5*degToRad,Eigen::Vector3f(0,0,1));
         //rotation mat for the accel, to correct for mounting, result should be ros convention. 
     Eigen::Matrix<float, 3,3> rotMat;
     rotMat <<   -1, 0, 0
                 ,0, 0,-1
                 ,0,-1, 0;
-
+    rotMat = rotMat*xRot*zRot*yRot;
 
 
     while(1){
@@ -723,11 +867,12 @@ void ESKFThread(){
             Thread::yield();
 
             mocapCount ++;
+            updateCount++;
              if(mocapCount%201 == 200){
                 Vector3f accBias = eskfPTR->getAccelBias();
                 Vector3f gyroBias = eskfPTR->getGyroBias();
-                buffered_pc.printf(" accBias x y z %f %f %f\r\n",accBias[0],accBias[1],accBias[2] );
-                buffered_pc.printf(" gyroBias x y z %f %f %f\r\n",gyroBias[0],gyroBias[1],gyroBias[2] );
+                // buffered_pc.printf(" accBias x y z %f %f %f\r\n",accBias[0],accBias[1],accBias[2] );
+                // buffered_pc.printf(" gyroBias x y z %f %f %f\r\n",gyroBias[0],gyroBias[1],gyroBias[2] );
             //     float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
             //     buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
             //     mocapCount = 0;
@@ -761,6 +906,7 @@ void ESKFThread(){
             if(duration.toSec() == 0.0) duration.fromSec(0.001);
 
             eskfPTR->predictIMU(accelLocal,gyroLocal,duration.toSec(),stamp);
+            estimateCount++;
 
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
@@ -797,6 +943,25 @@ void ESKFThread(){
 }
 
 
+void performance(){
+    while(1){
+    rosTime rT = timeTracker.getTime();
+    lTime nowT(rT.seconds,rT.nSeconds);
+    lTime dT = nowT - lastPerformanceT;
+    lastPerformanceT = nowT;
+    if(batteryV < 19){
+        buffered_pc.printf(RED"performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n"RESET,imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
+    }
+    //buffered_pc.printf("performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n",imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
+    imuCount = 0;
+    updateCount = 0;
+    estimateCount = 0; 
+    motorCount = 0;
+    Thread::wait(10000);
+}
+}
+
+
 
 
 int main()
@@ -804,7 +969,7 @@ int main()
     debugTimer.start();
     // testing eigen run time. 
     buffered_pc.baud(115200);
-    buffered_pc.printf("hello\r\n");
+    buffered_pc.printf(GRN"hello\r\n"RESET);
     UVLed = 1;
 
 
@@ -823,6 +988,7 @@ int main()
 
     //set switches up
     homeGND = false;
+    extGND = false;
     homeSwitchA.mode(PullUp);
     homeSwitchB.mode(PullUp);
     homeSwitchC.mode(PullUp);
@@ -841,7 +1007,8 @@ int main()
     UVLed = 0;
     
     accelT.start(accelThread);
-    printBattery.start(batteryThread);
+   // printBattery.start(batteryThread);
+    performanceThread.start(performance);
 
     while (true) {
         //led1 = !led1;

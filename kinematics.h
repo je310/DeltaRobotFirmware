@@ -38,11 +38,11 @@ public:
     int setSafeParams();
     int setFastParams();
     DeltaKinematics<float>* DK;
-    int goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos,Eigen::Vector3f angRates,float ffGain);
+    int goToWorldPos(Eigen::Affine3f currentPos, Eigen::Affine3f targetPos,Eigen::Vector3f angRates, Eigen::Affine3f outPos, float ffGain);
     void getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch, float& roll);
 
 
-private:
+//private:
     float e ;    // end effector
     float f;     // base
     float re;
@@ -82,6 +82,12 @@ private:
     Eigen::Matrix4f yawToTipM;
     Eigen::Affine3f yawToTipInv;
     Eigen::Matrix4f yawToTipInvM;
+
+    Eigen::Affine3f originToCentre;
+    Eigen::Matrix4f originToCentreM;
+
+    Eigen::Affine3f DoriginToCentre;
+    Eigen::Matrix4f DoriginToCentreM;
 
 
 };
