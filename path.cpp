@@ -13,19 +13,18 @@ PathManager::PathManager(){
     errorCounter = 0;
     bezierDivs = 256;
     pathCount = 0;
-
-    GunMarkerToBaseCentreM<<0.988085,-0.153316,-0.013475,0.0513067,0.153246,0.988169,-0.0061019,-0.0151392,0.0142511,0.0039642,0.999891,-0.049581,0,0,0,1;
-    GunMarkerToBaseCentreInvM<<0.988085,0.153246,0.0142511,-0.0476688,-0.153316,0.988169,0.0039642,0.0230228,-0.013475,-0.0061019,0.999891,0.0501746,0,0,0,1;
-    HeadCentreToPitchM<<1,0,0,0.0177,0,1,0,-0.011051,0,0,1,0.001949,0,0,0,1;
-    HeadCentreToPitchInvM<<1,0,0,-0.0177,0,1,0,0.011051,0,0,1,-0.001949,0,0,0,1;
-    PitchToYawM<<1,0,0,0.012,0,1,0,0,0,0,1,0,0,0,0,1;
-    PitchToYawInvM<<1,0,0,-0.012,0,1,0,0,0,0,1,0,0,0,0,1;
-    imuToOriginM<<1,0,0,0.085571,0,1,0,0.00393,0,0,1,-1.11022e-16,0,0,0,1;
-    imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.00393,0,0,1,1.11022e-16,0,0,0,1;
-    boardMarkerToCentreM<<0.967938,-0.0839857,0.236732,0.0163319,0.250649,0.261201,-0.932175,-0.0518183,0.0164548,0.961624,0.273877,-0.182812,0,0,0,1;
-    boardMarkerToCentreInvM<<0.967938,0.250649,0.0164548,0.000188067,-0.0839857,0.261201,0.961624,0.190703,0.236732,-0.932175,0.273877,-0.00210193,0,0,0,1;
-    yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02067,0,0,0,1;
-    yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02067,0,0,0,1;
+GunMarkerToBaseCentreM<<1,0,0,0,0,0.5,0,0,0,0,0.5,0,0,0,0,1;
+GunMarkerToBaseCentreInvM<<1,0,0,0,0,0.5,0,0,0,0,0.5,0,0,0,0,1;
+HeadCentreToPitchM<<1,0,0,0.01785,0,1,0,-0.0098,0,0,1,0.00174,0,0,0,1;
+HeadCentreToPitchInvM<<1,0,0,-0.01785,0,1,0,0.0098,0,0,1,-0.00174,0,0,0,1;
+PitchToYawM<<1,0,0,0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+PitchToYawInvM<<1,0,0,-0.012,0,1,0,0,0,0,1,0,0,0,0,1;
+imuToOriginM<<1,0,0,0.085571,0,1,0,0.0048,0,0,1,-1.11022e-16,0,0,0,1;
+imuToOriginInvM<<1,0,0,-0.085571,0,1,0,-0.0048,0,0,1,1.11022e-16,0,0,0,1;
+boardMarkerToCentreM<<0.846575,-0.0875766,0.525016,0.0166051,0.514511,0.38731,-0.765029,-0.0734264,-0.136345,0.917781,0.372946,-0.173941,0,0,0,1;
+boardMarkerToCentreInvM<<0.846575,0.514511,-0.136345,5.23615e-06,-0.0875766,0.38731,0.917781,0.189533,0.525016,-0.765029,0.372946,-2.06365e-05,0,0,0,1;
+yawToTipM<<1,0,0,0.11334,0,1,0,0,0,0,1,0.02456,0,0,0,1;
+yawToTipInvM<<1,0,0,-0.11334,0,1,0,0,0,0,1,-0.02456,0,0,0,1;
 
     originToCentreM <<1,0,0,0.16,0,1,0,0,0,0,1,0,0,0,0,1;
 
@@ -415,10 +414,12 @@ int PathManager::getReachability(Eigen::Affine3f currentBasePos, Eigen::Affine3f
     Eigen::Affine3f yaw = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(yawAng, Eigen::Vector3f::UnitZ());
     Eigen::Affine3f pitch = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(pitchAng, Eigen::Vector3f::UnitY());
 
+    Eigen::Affine3f roll = Eigen::Translation3f(0,0,0) * Eigen::AngleAxisf(r, Eigen::Vector3f::UnitX());
 
 
     Eigen::Affine3f kinOut = origin.inverse((Eigen::TransformTraits)1)
                             * targetPos
+                            * roll.inverse((Eigen::TransformTraits)1)
                             * yawToTipInv
                             * yaw.inverse((Eigen::TransformTraits)1)
                             * PitchToYawInv
@@ -451,7 +452,7 @@ int PathManager::getReachability(Eigen::Affine3f currentBasePos, Eigen::Affine3f
                 centreToTarget = kinTrans - centre;
                 kinTrans = centreToTarget.normalized()*range + centre;
                 kinOut.translation() = kinTrans;
-        posOut = origin * kinOut *HeadCentreToPitch * pitch * PitchToYaw * yaw * yawToTip;
+        posOut = origin * kinOut *HeadCentreToPitch * pitch * PitchToYaw * yaw * yawToTip * roll;
     }
     return inside;
 }

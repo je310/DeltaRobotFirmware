@@ -17,7 +17,8 @@ enum messageType{
     imuData = 7,
     imuDataChunk = 8,
     lineCmd = 9,
-    pathMsg = 10
+    pathMsg = 10,
+    kinematicsInfo = 11
 };
 
 
@@ -95,6 +96,14 @@ struct LocationIn{
     vectorFour quat;
     rosTime time;
     rosTime refTime;
+};
+
+struct KinematicsInfo{
+    int32_t type;
+    vectorThree deltaOffset;
+    float pitch;
+    float yaw;
+    rosTime time;
 };
 
 struct UserIn{
