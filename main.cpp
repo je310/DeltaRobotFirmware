@@ -122,6 +122,8 @@ rosTime timeMes;
 rosTime lastIMUTime;
 int accelPending = 0;
 
+
+float travelSpeedVal  = 0.1;
 //Path management 
 
 PathManager* PM;
@@ -147,6 +149,8 @@ Mail<ImuData, 128> mail_box_transmit_imu;
 Mail<KinematicsInfo, 128> mail_box_kinematics_info;
 
 Mail<LocationIn, 8> mail_box_headPosOut;
+
+Mail<PathUpdate, 8> mail_box_PathUpdate;
 
 // Mail<LocationIn,8> mail_box_locationIn;
 
@@ -212,6 +216,16 @@ void transmit()
                 int ret = socket.sendto(transmit, mail, sizeof(LocationIn));
 
                 mail_box_headPosOut.free(mail);
+                Thread::yield();
+            }
+        }
+        while(!mail_box_PathUpdate.empty()){
+            osEvent evt = mail_box_PathUpdate.get();
+            if(evt.status == osEventMail){
+                PathUpdate *mail = (PathUpdate*)evt.value.p;
+                int ret = socket.sendto(transmit, mail, sizeof(PathUpdate));
+
+                mail_box_PathUpdate.free(mail);
                 Thread::yield();
             }
         }
@@ -396,6 +410,8 @@ void receive()
                 case active:
                     movementActive = inmsg.settingInt;
                     break;
+                case travelSpeed:
+                    travelSpeedVal = inmsg.setting1;
                 default:
                     break;
             }
@@ -616,7 +632,7 @@ void runOdrive()
             //int error = kin.goToPos(0,0,k);
             if(i > 2*pi) i = 0;
             //PM->setNotComplete();
-            PM->rebuildReset();
+            //PM->rebuildReset();
 
             current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
             Thread::wait(1);
@@ -714,10 +730,10 @@ void runOdrive()
                    std::cout << "id" << retID << std::endl;
                    if(!PM->isClose(retID,end,current,target,0.002)){
                        if(end == 1){
-                           PM->setupTravel(current,PM->getStartPos(retID),target,PM->getNormal(retID),0.06,retID,end);
+                           PM->setupTravel(current,PM->getStartPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
                        }
                        if(end == 2){
-                           PM->setupTravel(current,PM->getEndPos(retID),target,PM->getNormal(retID),0.06,retID,end);
+                           PM->setupTravel(current,PM->getEndPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
                        }
                        end = 1;
                        retID = -2;
@@ -794,6 +810,20 @@ void runOdrive()
                 target =  current;
                 if(loopCounter%1000 == 0){
                    // buffered_pc.printf("here %f,%f,%f   target %f,%f,%f \r\n", here.translation()[0],here.translation()[1],here.translation()[2],target.translation()[0],target.translation()[1],target.translation()[2]);
+                }
+                if(loopCounter%50 == 0  || PM->isComplete(retID)){
+
+                    if(retID >=0){
+                        segment currentSeg = PM->hashLookupSegment(retID);
+                        PathUpdate *mail = mail_box_PathUpdate.alloc();
+                        mail->type = pathUpdate;
+                        mail->ID = currentSeg.ID;
+                        mail->complete = currentSeg.complete;
+                        mail->fromEndT = currentSeg.fromEndT;
+                        mail->fromStartT = currentSeg.fromStartT;
+                        mail_box_PathUpdate.put(mail);
+                        transmitterT.signal_set(0x1);
+                    }
                 }
                 Eigen::Vector3f angRates = eskfPTR->lastImu_.gyro;
                 float ffGain = 0.025;

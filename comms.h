@@ -19,7 +19,8 @@ enum messageType{
     lineCmd = 9,
     pathMsg = 10,
     kinematicsInfo = 11,
-    generalSettings = 12
+    generalSettings = 12,
+    pathUpdate = 13
 };
 
 enum settingsType{
@@ -28,7 +29,8 @@ enum settingsType{
     slowClosestPath,
     fastClosestPath,
     biasedFastPath,
-    active
+    active,
+    travelSpeed
 };
 
 
@@ -141,6 +143,14 @@ struct ImuData{
 struct ImuDataChunk{
     int32_t type;
     ImuData array[20];
+};
+
+struct PathUpdate{
+    int32_t type;
+    int32_t  ID;
+    float fromEndT;
+    float fromStartT;
+    int32_t complete;
 };
 
 //struct OdriveCMD{
