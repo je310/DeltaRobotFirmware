@@ -18,7 +18,17 @@ enum messageType{
     imuDataChunk = 8,
     lineCmd = 9,
     pathMsg = 10,
-    kinematicsInfo = 11
+    kinematicsInfo = 11,
+    generalSettings = 12
+};
+
+enum settingsType{
+    resetPaths,
+    sideToSideMode,
+    slowClosestPath,
+    fastClosestPath,
+    biasedFastPath,
+    active
 };
 
 
@@ -42,6 +52,16 @@ struct rosTime{
 struct PathMsg{
         int32_t type;
         segment seg;
+};
+
+struct GeneralSettings{
+    int32_t type;
+    int32_t settingType;
+    float setting1;
+    float setting2;
+    int settingInt;
+    vectorThree vec1;
+    vectorThree vec2;
 };
 
 struct AngleSpaceCmd{

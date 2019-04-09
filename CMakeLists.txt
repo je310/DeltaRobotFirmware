@@ -324,6 +324,7 @@ INCLUDE_DIRECTORIES(
   Eigen/src/Cholesky
   Eigen/src
   Eigen
+  octree/include
   FastPWM.h
   pwmDevice
   .
@@ -331,6 +332,8 @@ INCLUDE_DIRECTORIES(
 
 # executable DeltaRobotFirmware
 ADD_EXECUTABLE(DeltaRobotFirmware
+  octree/include/octree.h
+  octree/src/octree.cpp
   path.h
   path.cpp
   Axis.cpp

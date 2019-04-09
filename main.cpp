@@ -124,7 +124,7 @@ int accelPending = 0;
 
 //Path management 
 
-PathManager PM;
+PathManager* PM;
 
 //performance tracking;
 
@@ -240,6 +240,17 @@ void transmit()
     }
 }
 
+int loopCounter = 0;
+//Eigen::Vector3f current(0,0,0);
+int needNewSeg = 0;
+float findHorizon = 0.8;
+int retID = -1;
+int wasCompleted = 0;
+int pathMode = sideToSide;
+int movementActive = 1;
+
+
+
 void receive()
 {
     eth.connect();
@@ -354,10 +365,42 @@ void receive()
             PathMsg inmsg;
             memcpy(&inmsg, buffer, n);
             buffered_pc.printf("Got %d \r\n", inmsg.seg.ID);
-            PM.addNewPath(inmsg.seg);
+            PM->addNewPath(inmsg.seg);
 
         }
         break;
+
+        case generalSettings:
+            GeneralSettings inmsg;
+            memcpy(&inmsg, buffer, n);
+            switch(inmsg.settingType){
+                case resetPaths:
+                    PM->returnVector();
+                    retID = -1;
+                    needNewSeg = 1;
+                    wasCompleted = 0;
+                    buffered_pc.printf(BLU"Resetting the Octree + line status \n\r"RESET);
+                    break;
+                case sideToSideMode:
+                    pathMode = sideToSide;
+                    break;
+                case slowClosestPath:
+                    pathMode = closestSlow;
+                    break;
+                case fastClosestPath:
+                    pathMode = octreeMode;
+                    break;
+                case biasedFastPath:
+                    pathMode = octreeModeBiased;
+                    break;
+                case active:
+                    movementActive = inmsg.settingInt;
+                    break;
+                default:
+                    break;
+            }
+
+            break;
 
         case pingIn:
         
@@ -470,7 +513,7 @@ void runOdrive()
 
         batteryV = OD1.readBattery();
     } // wait till user
-    buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
+    buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM->pathCount);
     buffered_pc.printf(BLU"finding index\r\n"RESET);
     kin.findIndex();
     buffered_pc.printf(BLU"activating motors\r\n"RESET);
@@ -539,13 +582,14 @@ void runOdrive()
     float span = mid - min;
     float radius = 40;
     float envRad = 0.07;
-    int loopCounter = 0;
+ //   int loopCounter = 0;
     //Eigen::Vector3f current(0,0,0);
     int end = 1;
-    int needNewSeg = 0;
-    float findHorizon = 0.8;
-    int retID = -1;
-    int wasCompleted = 0;
+//    int needNewSeg = 0;
+//    float findHorizon = 0.8;
+//    int retID = -1;
+//    int wasCompleted = 0;
+//    int pathMode = sideToSide;
     rosTime rTimeNow = timeTracker.getTime();
     lTime lastTime(rTimeNow.seconds,rTimeNow.nSeconds);
     Eigen::Affine3f current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
@@ -571,7 +615,8 @@ void runOdrive()
             yaw.setAngle(25.0*cos(i));
             //int error = kin.goToPos(0,0,k);
             if(i > 2*pi) i = 0;
-            PM.setNotComplete();
+            //PM->setNotComplete();
+            PM->rebuildReset();
 
             current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
             Thread::wait(1);
@@ -611,39 +656,92 @@ void runOdrive()
 
                 // path finding section 
         // path finding section
-      if(needNewSeg){
-           if(wasCompleted){
-               wasCompleted = 0;
-               retID = PM.getBestHint(retID,end);
-               if(retID == -1){
-                   retID = PM.getClosestPath(current,here,target,findHorizon*envRad,end);
-                   buffered_pc.printf("from searchID:%d\r\n", retID);
-               }
-               else{
-                buffered_pc.printf(GRN"From best hint ID:%d\r\n"RESET, retID);
-               }
-           }
-           else{
-                retID = PM.getClosestPath(current,here,target,findHorizon*envRad,end);
-                buffered_pc.printf("not end from search ID:%d\r\n", retID);  //here
-           }
-           //std::cout << "id" << retID << std::endl;
-           if(!PM.isClose(retID,end,current,target,0.002)){
-               if(end == 1){
-                   PM.setupTravel(current,PM.getStartPos(retID),target,PM.getNormal(retID),0.08,retID,end);
-               }
-               if(end == 2){
-                   PM.setupTravel(current,PM.getEndPos(retID),target,PM.getNormal(retID),0.08,retID,end);
-               }
-               end = 1;
-               buffered_pc.printf("travelling to  ID:%d\r\n", retID);
-               retID = -2;
+                std::vector<octree::dataPtr> priorityList;
 
-           }
-           needNewSeg = 0;
-           
-       }
-       //PM.constrainHead(current,here, envRad); //// should I be constraining the head.
+
+                int end;
+                // path finding section
+               if(needNewSeg){
+                   //std::vector<std::pair<int,int> > IDList = PM->makeSeriesPrediction(current,here,target,findHorizon,envRad,15);
+                   if(wasCompleted){
+                       wasCompleted = 0;
+        //               retID = PM->getBestHint(retID,end);
+        //               cacheCount++;
+        //               if(retID == -1){
+        //                    cacheCount--;
+        //                    nonCacheCount++;
+        //                   retID = PM->getClosestPath(current,baseLocation,targetLocation,findHorizon*envRad,end);
+        //               }
+                   }
+                   //else{
+                   if(pathMode == closestSlow){
+                        retID = PM->getClosestPath(current,here,target,findHorizon*envRad,end);
+                   }
+                   else if(pathMode == octreeModeBiased){
+                        retID = PM->getClosestPathBiased(current,here,target,findHorizon*envRad,end,true,0.5,priorityList);
+                   }
+                   else if(pathMode == sideToSide){
+                       int biasPointNum = 10;
+                       std::vector<Eigen::Vector3f> biasPoints(biasPointNum);
+                       for(int i = 0; i < biasPoints.size(); i++){
+                           Eigen::Vector3f thisOne(0,-1,0.5 - (float)i/ biasPoints.size());
+                           //Eigen::Vector3f thisOne(0,0,0);
+                           biasPoints[i] = thisOne;
+                       }
+                        retID = PM->getClosestPathBiasedWithGlobal(current,here,target,biasPoints,findHorizon*envRad,end,false,0, 1.0,priorityList);
+                   }
+                   else if(pathMode == octreeMode){
+                       retID = PM->getClosestPathFast(current,here,target,findHorizon*envRad,end,true,priorityList);
+                   }
+                   else if(pathMode == inOrder){
+                        static int currentPath  = 0;
+                        if(PM->isComplete(currentPath)) currentPath++;
+                        if(currentPath == PM->pathCount) currentPath = -1;
+                        retID  = currentPath;
+                   }
+                   static int pastID = retID;
+                   if(pastID != retID){
+        //               pastID = retID;
+        //               heatMap = PM->getHeatMap(0.07,Eigen::Vector3f(0,0,0),Eigen::Vector3f(0,2,0),Eigen::Vector3f(0,0,1));
+        //               cv::imshow("window",1000*heatMap);
+        //               cv::waitKey(1);
+                   }
+
+                   //}
+                   if(retID == 174){
+                       std::cout << "here" << std::endl;
+                   }
+                   std::cout << "id" << retID << std::endl;
+                   if(!PM->isClose(retID,end,current,target,0.002)){
+                       if(end == 1){
+                           PM->setupTravel(current,PM->getStartPos(retID),target,PM->getNormal(retID),0.06,retID,end);
+                       }
+                       if(end == 2){
+                           PM->setupTravel(current,PM->getEndPos(retID),target,PM->getNormal(retID),0.06,retID,end);
+                       }
+                       end = 1;
+                       retID = -2;
+
+                   }
+                   else{
+                       //should take seg out of octree.
+                       if(octreeMode){
+                           if(retID >= 0){
+                               octree::dataPtr startPoint, endPoint;
+                               startPoint.data = retID;
+                               startPoint.point = PM->getStartEndPos(retID,1);
+                               endPoint.data = retID;
+                               endPoint.point = PM->getStartEndPos(retID,2);
+                               bool  val = PM->oct->remove(startPoint);
+                               if(val == false) std::cout << "remove error" << std::endl;
+                               val = PM->oct->remove(endPoint);
+                               if(val == false) std::cout << "remove error" << std::endl;
+                           }
+                       }
+                   }
+                   needNewSeg = 0;
+               }
+       //PM->constrainHead(current,here, envRad); //// should I be constraining the head.
                       Eigen::Affine3f posTest;
 
                    rosTime rNow = timeTracker.getTime();
@@ -658,16 +756,16 @@ void runOdrive()
                         buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
                         dt = 0.001;
                     }
-                    int isReach = PM.reachable(retID,current,target,here, envRad,posTest,end);
+                    int isReach = PM->reachable(retID,current,target,here, envRad,posTest,end);
                     if(!isReach){
                         buffered_pc.printf(RED"cannot reach:%d \r\n"RESET, retID);
                     }
-       if(isReach && !PM.isComplete(retID)){
-           PM.stepTime(retID,dt,end);
-           current.translation() = PM.getPos(retID,end,target);
+       if(isReach && !PM->isComplete(retID)){
+           PM->stepTime(retID,dt,end);
+           current.translation() = PM->getPos(retID,end,target);
        }
        else{
-           if(PM.isComplete(retID) && PM.finishedOnEnd(retID)){
+           if(PM->isComplete(retID) && PM->finishedOnEnd(retID)){
             wasCompleted =1;
             buffered_pc.printf(GRN"completed on end ID:%d\r\n"RESET, retID);
            }
@@ -705,7 +803,8 @@ void runOdrive()
                 float pitchOut = 0;
                 Eigen::Vector3f deltaPos; 
                 Eigen::Affine3f outPos2;
-                int notReachable = kin.goToWorldPos(here,target, angRates, posTest,outPos2, ffGain, deltaPos, yawOut, pitchOut);
+                int notReachable = 1;
+                if(movementActive) notReachable = kin.goToWorldPos(here,target, angRates, posTest,outPos2, ffGain, deltaPos, yawOut, pitchOut);
                 current = posTest;
 
                 KinematicsInfo *mail = mail_box_kinematics_info.alloc();
@@ -760,10 +859,10 @@ void runOdrive()
         Thread::signal_wait(0x1);
         Thread::yield();
         if(loopCounter % 200000 == 0) {
-            if(PM.pathCount > 0)
-                buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
+            if(PM->pathCount > 0)
+                buffered_pc.printf(GRN"we have recieved this many lines %d\r\n"RESET, PM->pathCount);
             else
-                buffered_pc.printf(RED"we have recieved this many lines %d\r\n"RESET, PM.pathCount);
+                buffered_pc.printf(RED"we have recieved this many lines %d\r\n"RESET, PM->pathCount);
             batteryV = OD1.readBattery();
 
         }
@@ -1072,6 +1171,11 @@ int main()
     
     i2c.frequency(1000000);
 
+    Eigen::Vector3f centre(0,0,0);
+    float range = 1.0;
+    octree::node* nodeBuffer = new octree::node[(int)(1000)];
+    octree myOct(32,2,centre,range,nodeBuffer,(int)(1000));
+    PM = new PathManager(&myOct);
     
 
     //set switches up
