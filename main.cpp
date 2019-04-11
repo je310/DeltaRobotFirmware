@@ -144,13 +144,17 @@ typedef struct{
 } imuMail;
 Mail<imuMail, 128> mail_box;
 
-Mail<ImuData, 128> mail_box_transmit_imu;
+Mail<ImuData, 64> mail_box_transmit_imu;
 
-Mail<KinematicsInfo, 128> mail_box_kinematics_info;
+Mail<KinematicsInfo, 16> mail_box_kinematics_info;
 
-Mail<LocationIn, 8> mail_box_headPosOut;
+Mail<LocationIn, 16> mail_box_headPosOut;
 
-Mail<PathUpdate, 8> mail_box_PathUpdate;
+Mail<LocationIn, 128> mail_box_mocapOut;
+
+Mail<PathUpdate, 64> mail_box_PathUpdate;
+
+Mail<LocationOut,16> mail_box_mocapToProcess;
 
 // Mail<LocationIn,8> mail_box_locationIn;
 
@@ -189,17 +193,17 @@ void transmit()
         //     }
             
         // }
-        while(!mail_box_transmit_imu.empty()){
+        if(!mail_box_transmit_imu.empty()){
                         osEvent evt = mail_box_transmit_imu.get();
             if(evt.status == osEventMail){
             ImuData *mail = (ImuData*)evt.value.p;
-            int ret = socket.sendto(transmit, mail, sizeof(imuDataBuffer));
+            int ret = socket.sendto(transmit, mail, sizeof(ImuData));
 
             mail_box_transmit_imu.free(mail);
             Thread::yield();
         }
         }
-        while(!mail_box_kinematics_info.empty()){
+        if(!mail_box_kinematics_info.empty()){
             osEvent evt = mail_box_kinematics_info.get();
             if(evt.status == osEventMail){
                 KinematicsInfo *mail = (KinematicsInfo*)evt.value.p;
@@ -209,7 +213,7 @@ void transmit()
                 Thread::yield();
             }
         }
-        while(!mail_box_headPosOut.empty()){
+        if(!mail_box_headPosOut.empty()){
             osEvent evt = mail_box_headPosOut.get();
             if(evt.status == osEventMail){
                 LocationIn *mail = (LocationIn*)evt.value.p;
@@ -219,7 +223,7 @@ void transmit()
                 Thread::yield();
             }
         }
-        while(!mail_box_PathUpdate.empty()){
+        if(!mail_box_PathUpdate.empty()){
             osEvent evt = mail_box_PathUpdate.get();
             if(evt.status == osEventMail){
                 PathUpdate *mail = (PathUpdate*)evt.value.p;
@@ -229,26 +233,18 @@ void transmit()
                 Thread::yield();
             }
         }
-        // //imudataMutex.unlock();
-        // while(!mail_box_locationIn.empty()){
-        //     osEvent evt = mail_box_locationIn.get();
-        //     if(evt.status == osEventMail){
-        //     LocationIn *mail = (LocationIn*)evt.value.p;
-        //     int ret = socket.sendto(transmit, mail, sizeof(LocationIn));
 
-        //     mail_box_locationIn.free(mail);
-        //     Thread::yield();
-        // }
-    //}
-        // if(newLocationReturnMsg ==1){
-        //     static rosTime last;
-        //     newLocationReturnMsg = 0;
-        //     if(last.seconds != locationReturnMsg.time.seconds || last.nSeconds != locationReturnMsg.time.nSeconds){
-        //         last = locationReturnMsg.time;
-        //         int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
-
-        //     }
-        // }
+        if(!mail_box_mocapOut.empty()){
+            osEvent evt = mail_box_mocapOut.get();
+            if(evt.status == osEventMail){
+                LocationIn *mail = (LocationIn*)evt.value.p;
+                if(mail->refTime.seconds!= 0){
+                    int ret = socket.sendto(transmit, mail, sizeof(LocationIn));
+                }
+                mail_box_mocapOut.free(mail);
+                Thread::yield();
+            }
+        }
         
         Thread::signal_wait(0x1);
     }
@@ -353,14 +349,11 @@ void receive()
 
         case locationOut:{
             memcpy(&mocapLocation, buffer, n);
-            newMocapLocation = 1;
+            LocationOut* mail = mail_box_mocapToProcess.alloc();
+            *mail = mocapLocation;
+            mail_box_mocapToProcess.put(mail);
             ESKFT.signal_set(0x1);
-            // locationReturnMsg.type = locationIn;
-            // locationReturnMsg.pos = mocapLocation.pos;
-            // locationReturnMsg.quat = mocapLocation.quat;
-            // locationReturnMsg.refTime = mocapLocation.time;
-            // locationReturnMsg.time = now;
-            //int ret = socket.sendto(transmit, &locationReturnMsg, sizeof(locationReturnMsg));
+
             //newLocationReturnMsg = 1;
         }
             break;
@@ -634,7 +627,7 @@ void runOdrive()
             //PM->setNotComplete();
             //PM->rebuildReset();
 
-            current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
+           // current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
             Thread::wait(1);
         }
         else{
@@ -837,32 +830,35 @@ void runOdrive()
                 if(movementActive) notReachable = kin.goToWorldPos(here,target, angRates, posTest,outPos2, ffGain, deltaPos, yawOut, pitchOut);
                 current = posTest;
 
-                KinematicsInfo *mail = mail_box_kinematics_info.alloc();
-                mail->yaw = yawOut;
-                mail->pitch = pitchOut;
-                mail->deltaOffset.x = deltaPos[0];
-                mail->deltaOffset.y = deltaPos[1];
-                mail->deltaOffset.z = deltaPos[2];
-                mail->time = rNow;
-                mail->type = kinematicsInfo;
+                if(loopCounter%50 == 0){
+                    KinematicsInfo *mail = mail_box_kinematics_info.alloc();
+                    mail->yaw = yawOut;
+                    mail->pitch = pitchOut;
+                    mail->deltaOffset.x = deltaPos[0];
+                    mail->deltaOffset.y = deltaPos[1];
+                    mail->deltaOffset.z = deltaPos[2];
+                    mail->time = rNow;
+                    mail->type = kinematicsInfo;
 
-                mail_box_kinematics_info.put(mail);
+                    mail_box_kinematics_info.put(mail);
 
-                LocationIn *mail2 = mail_box_headPosOut.alloc();
-                Eigen::Quaternionf outPos2Quat(outPos2.rotation());
-                Eigen::Vector3f outPos2Pos = outPos2.translation();
-                mail2->quat.x = outPos2Quat.x();
-                mail2->quat.y = outPos2Quat.y();
-                mail2->quat.z = outPos2Quat.z();
-                mail2->quat.w = outPos2Quat.w();
-                mail2->pos.x = outPos2Pos[0];
-                mail2->pos.y = outPos2Pos[1];
-                mail2->pos.z = outPos2Pos[2];
-                mail2->time = rNow;
-                mail2->type = locationIn;
 
-                mail_box_headPosOut.put(mail2);
-                transmitterT.signal_set(0x1);
+                    LocationIn *mail2 = mail_box_headPosOut.alloc();
+                    Eigen::Quaternionf outPos2Quat(outPos2.rotation());
+                    Eigen::Vector3f outPos2Pos = outPos2.translation();
+                    mail2->quat.x = outPos2Quat.x();
+                    mail2->quat.y = outPos2Quat.y();
+                    mail2->quat.z = outPos2Quat.z();
+                    mail2->quat.w = outPos2Quat.w();
+                    mail2->pos.x = outPos2Pos[0];
+                    mail2->pos.y = outPos2Pos[1];
+                    mail2->pos.z = outPos2Pos[2];
+                    mail2->time = rNow;
+                    mail2->type = locationIn;
+
+                    mail_box_headPosOut.put(mail2);
+                    transmitterT.signal_set(0x1);
+                }
             //     LocationIn retMsg;
             //     LocationIn *mail = mail_box_locationIn.alloc();
             //     mail->pos.x = posTest.translation()[0];
@@ -974,14 +970,16 @@ void accelThread()
             detlaTimu = timeTracker.difference(lastIMUTime, timeMesLocal);
             lastIMUTime = timeMesLocal;
             if(detlaTimu != 0.0){
-                imuMail *mail = mail_box.alloc();
-                mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
+                if(!mail_box.full()){
+                    imuMail *mail = mail_box.alloc();
+                    mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
 
-                mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+                    mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
 
-                mail->stamp = timeMesLocal;
-                mail_box.put(mail);
-                ESKFT.signal_set(0x1);
+                    mail->stamp = timeMesLocal;
+                    mail_box.put(mail);
+                    ESKFT.signal_set(0x1);
+                }
             }
             // if(dataCount % 2000 ==0){
             //     float fps = 1000000 * dataCount / debugT.read_us();
@@ -1017,27 +1015,27 @@ int lastIMUT = 0;
 void ESKFThread(){
 
     //set up the ESKF as per the desktop example. 
-        float sigma_accel = 0.124; // [m/s^2]  (value derived from Noise Spectral Density in datasheet)
-    float sigma_gyro = 0.00276; // [rad/s] (value derived from Noise Spectral Density in datasheet)
-    float sigma_accel_drift = 0.00025; // [m/s^2 sqrt(s)] (Educated guess, real value to be measured)
-    float sigma_gyro_drift = 5e-6; // [rad/s sqrt(s)] (Educated guess, real value to be measured)
+        float sigma_accel = 0.0124; // [m/s^2]  (value derived from Noise Spectral Density in datasheet)
+    float sigma_gyro = 0.476; // [rad/s] (value derived from Noise Spectral Density in datasheet)
+    float sigma_accel_drift = 0.001f*sigma_accel; // [m/s^2 sqrt(s)] (Educated guess, real value to be measured)
+    float sigma_gyro_drift = 0.001f*sigma_gyro; // [rad/s sqrt(s)] (Educated guess, real value to be measured)
 
     float sigma_init_pos = 1.0; // [m]
-    float sigma_init_vel = 0.1; // [m/s]
+    float sigma_init_vel = 0.01; // [m/s]
     float sigma_init_dtheta = 1.0; // [rad]
-    float sigma_init_accel_bias = 1.0*sigma_accel_drift; // [m/s^2]
-    float sigma_init_gyro_bias = 1.0*sigma_gyro_drift; // [rad/s]
+    float sigma_init_accel_bias = 1000.0*sigma_accel_drift; // [m/s^2]
+    float sigma_init_gyro_bias = 1000.0*sigma_gyro_drift; // [rad/s]
 
-    float sigma_mocap_pos = 0.001; // [m]
-    float sigma_mocap_rot = 0.01; // [rad]
+    float sigma_mocap_pos = 0.003; // [m]
+    float sigma_mocap_rot = 0.03; // [rad]
     eskfPTR = new ESKF(
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
                 Vector3f(0, 0, 1), // init pos
                 Vector3f(0, 0, 0), // init vel
                 Quaternionf(AngleAxisf(0.0f, Vector3f(0, 0, 1))), // init quaternion
-                Vector3f(-1.26, -1.09, -1.977), // init accel bias
-                Vector3f(0.114, -0.01, 0) // init gyro bias
+                    Vector3f(-1.26, -1.09, -1.977), // init accel bias
+                    Vector3f(0.114, -0.01, 0) // init gyro bias
             ),
             ESKF::makeP(
                 SQ(sigma_init_pos) * I_3,
@@ -1069,36 +1067,47 @@ void ESKFThread(){
 
 
     while(1){
-        if(newMocapLocation==1){
-            newMocapLocation = 0;
-            Quaternionf quat(mocapLocation.quat.w,mocapLocation.quat.x,mocapLocation.quat.y,mocapLocation.quat.z);
-            Vector3f pos(mocapLocation.pos.x,mocapLocation.pos.y,mocapLocation.pos.z);
-            lTime stamp(mocapLocation.time.seconds,mocapLocation.time.nSeconds);
-            rosTime nowRos = timeTracker.getTime();
-            lTime now(nowRos.seconds,nowRos.nSeconds);
-            float confidence  = mocapLocation.confidence;
-            eskfPTR->measurePos(pos,confidence * SQ(sigma_mocap_pos)*I_3,stamp,now);
-            Thread::yield();
-            eskfPTR->measureQuat(quat,confidence *SQ(sigma_mocap_rot)*I_3,stamp,now);
-            Thread::yield();
+        while(!mail_box_mocapToProcess.empty()){
+
+            osEvent evt = mail_box_mocapToProcess.get();
+            if(evt.status == osEventMail){
+                rosTime nowRos = timeTracker.getTime();
+                LocationOut *mailIn = (LocationOut*)evt.value.p;
+                locationReturnMsg.type = locationIn;
+                locationReturnMsg.pos = mailIn->pos;
+                locationReturnMsg.quat = mailIn->quat;
+                locationReturnMsg.refTime = mailIn->time;
+                locationReturnMsg.time = nowRos;
 
 
-            mocapCount ++;
-            updateCount++;
-             if(mocapCount%201 == 200){
-                Vector3f accBias = eskfPTR->getAccelBias();
-                Vector3f gyroBias = eskfPTR->getGyroBias();
-                // buffered_pc.printf(" accBias x y z %f %f %f\r\n",accBias[0],accBias[1],accBias[2] );
-                // buffered_pc.printf(" gyroBias x y z %f %f %f\r\n",gyroBias[0],gyroBias[1],gyroBias[2] );
-            //     float fps = 1000000 * mocapCount / (debugTimer.read_us() - lastMocapT);
-            //     buffered_pc.printf("mocapFPS %fframesPerS\r\n",fps);
-            //     mocapCount = 0;
-            //     lastMocapT = debugTimer.read_us();
-            //     Vector3f posD = eskfPTR->getPos();
-            //         buffered_pc.printf(" position x y z %f %f %f\r\n",posD[0],posD[1],posD[2] );
-             }
+                Quaternionf quat(mailIn->quat.w,mailIn->quat.x,mailIn->quat.y,mailIn->quat.z);
+                Vector3f pos(mailIn->pos.x,mailIn->pos.y,mailIn->pos.z);
+                lTime stamp(mailIn->time.seconds,mailIn->time.nSeconds);
+
+                lTime now(nowRos.seconds,nowRos.nSeconds);
+                float confidence  = mailIn->confidence;
+                if(!(fabs(quat.x()) < 0.00001 || fabs(quat.y()) < 0.00001 ||fabs(quat.z()) < 0.00001 || stamp.sec == 0 || stamp.nsec == 0)){
+                    if(!mail_box_mocapOut.full()){
+                        LocationIn* mail = mail_box_mocapOut.alloc();
+                        *mail = locationReturnMsg;
+                        mail_box_mocapOut.put(mail);
+                    }
+
+                    eskfPTR->measurePos(pos,confidence * SQ(sigma_mocap_pos)*I_3,stamp,now);
+                    Thread::yield();
+                    eskfPTR->measureQuat(quat,confidence *SQ(sigma_mocap_rot)*I_3,stamp,now);
+                    Thread::yield();
+
+                    mocapCount ++;
+                    updateCount++;
+                    transmitterT.signal_set(0x1);
+                }
+                mail_box_mocapToProcess.free(mailIn);
+
+                Thread::yield();
+            }
         }
-        //if(imuToSend==1){
+
         
             
         while(!mail_box.empty()){
@@ -1128,20 +1137,22 @@ void ESKFThread(){
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
                         imuCount ++;
-                        if(imuCount %10 == 0){
-                            ImuData *mail = mail_box_transmit_imu.alloc();
-                            mail->type = imuData;
-                            mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set
-                            mail->accel.y = accelLocal[1];
-                            mail->accel.z = accelLocal[2];
+                        if(imuCount %1 == 0){
+                            if(!mail_box_transmit_imu.full()){
+                                ImuData *mail = mail_box_transmit_imu.alloc();
+                                mail->type = imuData;
+                                mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set
+                                mail->accel.y = accelLocal[1];
+                                mail->accel.z = accelLocal[2];
 
-                            mail->gyro.x = gyroLocal[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
-                            mail->gyro.y = gyroLocal[1]; // - gyroBias[1];
-                            mail->gyro.z = gyroLocal[2]; // - gyroBias[2];
-                            mail->time = timeLocal;
-                            mail_box_transmit_imu.put(mail);
-                            imuToSend = 1;
-                            transmitterT.signal_set(0x1);
+                                mail->gyro.x = gyroLocal[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+                                mail->gyro.y = gyroLocal[1]; // - gyroBias[1];
+                                mail->gyro.z = gyroLocal[2]; // - gyroBias[2];
+                                mail->time = timeLocal;
+                                mail_box_transmit_imu.put(mail);
+                                imuToSend = 1;
+                                transmitterT.signal_set(0x1);
+                            }
                         }
             // if(imuCount == 2000){
             //     float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
@@ -1155,9 +1166,9 @@ void ESKFThread(){
         //Thread::yield();
         Thread::signal_wait(0x1);
     }
-
-
 }
+
+
 
 
 void performance(){
