@@ -286,7 +286,9 @@ void ESKF::measureQuat(const Quaternionf& q_gb_meas, const Matrix3f& theta_covar
     H.block<3, 3>(0, dTHETA_IDX) = I_3;
 
     // Apply update
-    update_3D(delta_theta, theta_covariance, H, stamp, now);
+    if(delta_theta.norm() < 2.0){
+        update_3D(delta_theta, theta_covariance, H, stamp, now);
+    }
 }
 
 void ESKF::update_3D(
