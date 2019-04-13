@@ -812,7 +812,7 @@ void runOdrive()
                 //current = targetRot._transformVector(current);
                 //side = targetRot.inverse()._transformVector(side);
 
-                target =  current;
+                target =  posTest;
                 if(loopCounter%1000 == 0){
                    // buffered_pc.printf("here %f,%f,%f   target %f,%f,%f \r\n", here.translation()[0],here.translation()[1],here.translation()[2],target.translation()[0],target.translation()[1],target.translation()[2]);
                 }
