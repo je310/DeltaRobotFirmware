@@ -382,7 +382,7 @@ void receive()
             memcpy(&inmsg, buffer, n);
             switch(inmsg.settingType){
                 case resetPaths:
-                    PM->returnVector();
+                    PM->rebuildReset();
                     retID = -1;
                     needNewSeg = 1;
                     wasCompleted = 0;
@@ -774,14 +774,26 @@ void runOdrive()
            current.translation() = PM->getPos(retID,end,target);
        }
        else{
-           if(PM->isComplete(retID) && PM->finishedOnEnd(retID)){
+           if(PM->isComplete(retID)){
             wasCompleted =1;
             buffered_pc.printf(GRN"completed on end ID:%d\r\n"RESET, retID);
            }
-           else{
-            buffered_pc.printf(RED"unreachable for now. ID:%d\r\n"RESET, retID); //here
-           } 
+           else{ // here is a problem.
+               if(retID >= 0){
+                   if(octreeMode){
+                   octree::dataPtr startPoint, endPoint;
+                   startPoint.data = retID;
+                   startPoint.point = PM->getStartEndPos(retID,1);
+                   endPoint.data = retID;
+                   endPoint.point = PM->getStartEndPos(retID,2);
+                   int  val = PM->oct->insert(startPoint);
+                   val = PM->oct->insert(endPoint);
+                   }
+               }
+           }
+           retID=-2;
            needNewSeg = 1;
+           //should put the seg back into the octree.
        }
 
                 // end of path finding section. 
@@ -828,7 +840,7 @@ void runOdrive()
                 Eigen::Affine3f outPos2;
                 int notReachable = 1;
                 if(movementActive) notReachable = kin.goToWorldPos(here,target, angRates, posTest,outPos2, ffGain, deltaPos, yawOut, pitchOut);
-                current = posTest;
+                current = outPos2;
 
                 if(loopCounter%50 == 0){
                     KinematicsInfo *mail = mail_box_kinematics_info.alloc();
@@ -1016,7 +1028,7 @@ void ESKFThread(){
 
     //set up the ESKF as per the desktop example. 
         float sigma_accel = 0.0124; // [m/s^2]  (value derived from Noise Spectral Density in datasheet)
-    float sigma_gyro = 0.476; // [rad/s] (value derived from Noise Spectral Density in datasheet)
+    float sigma_gyro = 0.00276; // [rad/s] (value derived from Noise Spectral Density in datasheet)
     float sigma_accel_drift = 0.001f*sigma_accel; // [m/s^2 sqrt(s)] (Educated guess, real value to be measured)
     float sigma_gyro_drift = 0.001f*sigma_gyro; // [rad/s sqrt(s)] (Educated guess, real value to be measured)
 
@@ -1026,8 +1038,8 @@ void ESKFThread(){
     float sigma_init_accel_bias = 1000.0*sigma_accel_drift; // [m/s^2]
     float sigma_init_gyro_bias = 1000.0*sigma_gyro_drift; // [rad/s]
 
-    float sigma_mocap_pos = 0.003; // [m]
-    float sigma_mocap_rot = 0.03; // [rad]
+    float sigma_mocap_pos = 0.0003; // [m]
+    float sigma_mocap_rot = 0.003; // [rad]
     eskfPTR = new ESKF(
             Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
             ESKF::makeState(
@@ -1087,11 +1099,11 @@ void ESKFThread(){
                 lTime now(nowRos.seconds,nowRos.nSeconds);
                 float confidence  = mailIn->confidence;
                 if(!(fabs(quat.x()) < 0.00001 || fabs(quat.y()) < 0.00001 ||fabs(quat.z()) < 0.00001 || stamp.sec == 0 || stamp.nsec == 0)){
-                    if(!mail_box_mocapOut.full()){
-                        LocationIn* mail = mail_box_mocapOut.alloc();
-                        *mail = locationReturnMsg;
-                        mail_box_mocapOut.put(mail);
-                    }
+//                    if(!mail_box_mocapOut.full()){
+//                        LocationIn* mail = mail_box_mocapOut.alloc();
+//                        *mail = locationReturnMsg;
+//                        mail_box_mocapOut.put(mail);
+//                    }
 
                     eskfPTR->measurePos(pos,confidence * SQ(sigma_mocap_pos)*I_3,stamp,now);
                     Thread::yield();
@@ -1100,7 +1112,7 @@ void ESKFThread(){
 
                     mocapCount ++;
                     updateCount++;
-                    transmitterT.signal_set(0x1);
+                    //transmitterT.signal_set(0x1);
                 }
                 mail_box_mocapToProcess.free(mailIn);
 
@@ -1137,7 +1149,7 @@ void ESKFThread(){
             updatedESKF = 1;
             odriveThread.signal_set(0x1);
                         imuCount ++;
-                        if(imuCount %1 == 0){
+                        if(imuCount %50 == 0){
                             if(!mail_box_transmit_imu.full()){
                                 ImuData *mail = mail_box_transmit_imu.alloc();
                                 mail->type = imuData;

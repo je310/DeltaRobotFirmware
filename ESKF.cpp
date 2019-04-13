@@ -124,7 +124,9 @@ Quaternionf ESKF::rotVecToQuat(const Vector3f& in) {
 
 Vector3f ESKF::quatToRotVec(const Quaternionf& q) {
     AngleAxisf angAx(q);
-    return angAx.angle() * angAx.axis();
+    Vector3f angleVec =  angAx.angle() * angAx.axis();
+    if(angleVec.norm() > M_PI) angleVec = angleVec - 2*M_PI*angleVec.normalized();
+    return angleVec;
 }
 
 void ESKF::predictIMU(const Vector3f& a_m, const Vector3f& omega_m, const float dt, lTime stamp) {
@@ -258,6 +260,7 @@ void ESKF::measurePos(const Vector3f& pos_meas, const Matrix3f& pos_covariance,l
     H.block<3, 3>(0, dPOS_IDX) = I_3;
 
     // Apply update
+    if(delta_pos.norm() > 1)delta_pos = 1.0*delta_pos.normalized();
     update_3D(delta_pos, pos_covariance, H, stamp, now);
 }
 
@@ -285,10 +288,8 @@ void ESKF::measureQuat(const Quaternionf& q_gb_meas, const Matrix3f& theta_covar
     H.setZero();
     H.block<3, 3>(0, dTHETA_IDX) = I_3;
 
-    // Apply update
-    if(delta_theta.norm() < 2.0){
-        update_3D(delta_theta, theta_covariance, H, stamp, now);
-    }
+    update_3D(delta_theta, theta_covariance, H, stamp, now);
+
 }
 
 void ESKF::update_3D(
