@@ -376,6 +376,31 @@ int PathManager::reachable(segment seg ,Affine3f currentPos,Affine3f targetPos, 
     return ret;
 
 }
+
+//returns whether there is a reachable part of the segment (from either end)
+int PathManager::thisEndReachable(int ID ,Eigen::Affine3f currentPos,Eigen::Affine3f targetPos, Eigen::Affine3f basePos, float envelopeRadius,Eigen::Affine3f &pos, int end){
+    segment seg = hashLookupSegment(ID);
+    return thisEndReachable(seg , currentPos,targetPos,basePos, envelopeRadius,pos,end);
+}
+
+int PathManager::thisEndReachable(segment seg ,Eigen::Affine3f currentPos,Eigen::Affine3f targetPos, Eigen::Affine3f basePos, float envelopeRadius,Eigen::Affine3f &pos, int end){
+    Affine3f startPos, endPos, testPos; // start and end after adding any existing progress.
+    int  reach = 0;
+
+    if(end == 2){
+        float endDist;
+        pos = targetPos * Eigen::Translation3f(getEndPos(seg));
+        reach = getReachability(basePos, currentPos, pos,testPos, endDist, envelopeRadius);
+
+    }
+    else if(end == 1){
+        float startDist;
+        pos = targetPos * Eigen::Translation3f(getStartPos(seg));
+        reach = getReachability(basePos, currentPos, pos,testPos, startDist, envelopeRadius);
+    }
+    return reach;
+
+}
 void PathManager::getEulerYPREigen(Eigen::Matrix3f mat, float& yaw, float& pitch, float& roll)
 {
      unsigned int solution_number = 1;

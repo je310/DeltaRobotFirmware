@@ -73,6 +73,8 @@ public:
     int stepTime(int ID,float deltaT, int end);
     int stepTime(segment &seg, float deltaT, int end);
     int reachable(int ID , Eigen::Affine3f currentPos,Eigen::Affine3f targetPos, Eigen::Affine3f basePos, float envelopeRadius, Eigen::Affine3f &pos, int end);
+    int thisEndReachable(segment seg ,Eigen::Affine3f currentPos,Eigen::Affine3f targetPos, Eigen::Affine3f basePos, float envelopeRadius,Eigen::Affine3f &pos, int end);
+    int thisEndReachable(int ID ,Eigen::Affine3f currentPos,Eigen::Affine3f targetPos, Eigen::Affine3f basePos, float envelopeRadius,Eigen::Affine3f &pos, int end);
     int getReachability(Eigen::Affine3f currentBasePos, Eigen::Affine3f currentHeadPos, Eigen::Affine3f targetPos, Eigen::Affine3f &posOut,  float &distance, float evelope);
     int getReachabilityFast(Eigen::Affine3f currentBasePos, Eigen::Affine3f currentHeadPos, Eigen::Affine3f targetPos,  float &distance, float evelope, float minMaxAngle);
     Eigen::Vector3f getPos(int ID, int end,Eigen::Affine3f targetLocation);

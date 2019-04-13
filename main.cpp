@@ -171,7 +171,7 @@ void transmit()
     // msg.motor1.busVoltage = 69;
     // buffered_pc.printf("starting send loop");
     while (true) {
-      //  msg.motor1.busVoltage += 1;
+        //  msg.motor1.busVoltage += 1;
         //int ret = socket.sendto(transmit, &msg, sizeof(msg));
         //printf("sendto return: %d\n", ret);
         
@@ -179,7 +179,7 @@ void transmit()
         // if(imuToSend == 1){
         //     static rosTime last;
         //     imuToSend = 0;
-            
+
         //     if(last.seconds != imuDataBuffer.time.seconds || last.nSeconds != imuDataBuffer.time.nSeconds){
         //         static int count = -1;
         //         count++;
@@ -191,17 +191,17 @@ void transmit()
         //         // }
         //         int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
         //     }
-            
+
         // }
         if(!mail_box_transmit_imu.empty()){
-                        osEvent evt = mail_box_transmit_imu.get();
+            osEvent evt = mail_box_transmit_imu.get();
             if(evt.status == osEventMail){
-            ImuData *mail = (ImuData*)evt.value.p;
-            int ret = socket.sendto(transmit, mail, sizeof(ImuData));
+                ImuData *mail = (ImuData*)evt.value.p;
+                int ret = socket.sendto(transmit, mail, sizeof(ImuData));
 
-            mail_box_transmit_imu.free(mail);
-            Thread::yield();
-        }
+                mail_box_transmit_imu.free(mail);
+                Thread::yield();
+            }
         }
         if(!mail_box_kinematics_info.empty()){
             osEvent evt = mail_box_kinematics_info.get();
@@ -291,32 +291,32 @@ void receive()
     char buffer[256];
     
     
-        buffered_pc.printf(GRN"starting receive loop\r\n"RESET);
-        rosTime now;
-        
-        
+    buffered_pc.printf(GRN"starting receive loop\r\n"RESET);
+    rosTime now;
+
+
     while (true) {
         //printf("\nWait for packet...\n");
         int n = socket.recvfrom(&receive, buffer, sizeof(buffer));
         if(n > 0 ){
             //buffered_pc.printf("Ho\n\r");
-                int32_t typeInt = (int32_t)buffer[0];
-                now = timeTracker.getTime();
-        switch(typeInt){
-        case angleSpaceCmd:
-            memcpy(&ABCSpaceCommand, buffer, n);
-            newABCSpaceCommand = 1;
-            odriveThread.signal_set(0x1);
+            int32_t typeInt = (int32_t)buffer[0];
+            now = timeTracker.getTime();
+            switch(typeInt){
+            case angleSpaceCmd:
+                memcpy(&ABCSpaceCommand, buffer, n);
+                newABCSpaceCommand = 1;
+                odriveThread.signal_set(0x1);
 
-            break;
+                break;
 
-        case cartSpaceCmd:
-            memcpy(&XYZSpaceCommand, buffer, n);
-            newXYZSpaceCommand = 1;
-            odriveThread.signal_set(0x1);
-            break;
+            case cartSpaceCmd:
+                memcpy(&XYZSpaceCommand, buffer, n);
+                newXYZSpaceCommand = 1;
+                odriveThread.signal_set(0x1);
+                break;
 
-        case pingOut:{
+            case pingOut:{
                 PingOut inmsg;
                 memcpy(&inmsg, buffer, n);
 
@@ -338,49 +338,49 @@ void receive()
                 //buffered_pc.printf("sectionTime %d \r\n", debugTimer.read_high_resolution_us());
                 
                 //buffered_pc.printf("current time is %ds and %dns \r\n", now.seconds, now.nSeconds);
-            
+
                 if(inmsg.timeOffset !=0.0f){
                     //buffered_pc.printf("Applying offset %fs \n\r",inmsg.timeOffset);
 
-                    timeTracker.updateTime(inmsg.timeOffset);            
+                    timeTracker.updateTime(inmsg.timeOffset);
                 }
             }
-            break;
+                break;
 
-        case locationOut:{
-            memcpy(&mocapLocation, buffer, n);
-            LocationOut* mail = mail_box_mocapToProcess.alloc();
-            *mail = mocapLocation;
-            mail_box_mocapToProcess.put(mail);
-            ESKFT.signal_set(0x1);
+            case locationOut:{
+                memcpy(&mocapLocation, buffer, n);
+                LocationOut* mail = mail_box_mocapToProcess.alloc();
+                *mail = mocapLocation;
+                mail_box_mocapToProcess.put(mail);
+                ESKFT.signal_set(0x1);
 
-            //newLocationReturnMsg = 1;
-        }
-            break;
+                //newLocationReturnMsg = 1;
+            }
+                break;
 
-        case lineCmd:{
-            LineCmd inmsg;
-            memcpy(&inmsg, buffer, n);
-            //for now only use the first point and orientation. 
-            targetPos << inmsg.posStart.x , inmsg.posStart.y, inmsg.posStart.z;
-            targetRot= Eigen::Quaternionf(inmsg.quat.w , inmsg.quat.x , inmsg.quat.y , inmsg.quat.z);
+            case lineCmd:{
+                LineCmd inmsg;
+                memcpy(&inmsg, buffer, n);
+                //for now only use the first point and orientation.
+                targetPos << inmsg.posStart.x , inmsg.posStart.y, inmsg.posStart.z;
+                targetRot= Eigen::Quaternionf(inmsg.quat.w , inmsg.quat.x , inmsg.quat.y , inmsg.quat.z);
 
 
-        }
-        break;
-        case pathMsg:{
-            PathMsg inmsg;
-            memcpy(&inmsg, buffer, n);
-            buffered_pc.printf("Got %d \r\n", inmsg.seg.ID);
-            PM->addNewPath(inmsg.seg);
+            }
+                break;
+            case pathMsg:{
+                PathMsg inmsg;
+                memcpy(&inmsg, buffer, n);
+                buffered_pc.printf("Got %d \r\n", inmsg.seg.ID);
+                PM->addNewPath(inmsg.seg);
 
-        }
-        break;
+            }
+                break;
 
-        case generalSettings:
-            GeneralSettings inmsg;
-            memcpy(&inmsg, buffer, n);
-            switch(inmsg.settingType){
+            case generalSettings:
+                GeneralSettings inmsg;
+                memcpy(&inmsg, buffer, n);
+                switch(inmsg.settingType){
                 case resetPaths:
                     PM->rebuildReset();
                     retID = -1;
@@ -407,30 +407,30 @@ void receive()
                     travelSpeedVal = inmsg.setting1;
                 default:
                     break;
+                }
+
+                break;
+
+            case pingIn:
+
+                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
+
+                break;
+
+            case locationIn:
+                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
+                break;
+
+            case userIn:
+                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
+                break;
+
+            default: ;
+
             }
 
-            break;
-
-        case pingIn:
-        
-            buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
-        
-            break;
-
-        case locationIn:
-                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
-            break;
-
-        case userIn:
-                buffered_pc.printf(RED"This is an outgoing type !! Type: %d  \n\r"RESET,typeInt );
-            break;
-
-        default: ;
-
-        }
-        
-        //buffer[n] = '\0';
-        //buffered_pc.printf("Count:%i, Motor1Vel:%f, Motor1Tor: %f \r\n",inmsg.count, inmsg.motor1.velocity,inmsg.motor1.torque);
+            //buffer[n] = '\0';
+            //buffered_pc.printf("Count:%i, Motor1Vel:%f, Motor1Tor: %f \r\n",inmsg.count, inmsg.motor1.velocity,inmsg.motor1.torque);
         }
         //debugTimer.reset();
         Thread::yield();
@@ -446,7 +446,7 @@ int getCountPos(BufferedSerial ser, int axis)
 Eigen::Affine3f posAngToEigen(Eigen::Vector3f pos, float yawin, float pitchin){
     float pi = M_PI;
     Eigen::Affine3f mat = Eigen::Translation3f(pos) * Eigen::AngleAxisf(pi*yawin/180, Eigen::Vector3f::UnitZ())
-                        * Eigen::AngleAxisf(pi*pitchin/180, Eigen::Vector3f::UnitY());
+            * Eigen::AngleAxisf(pi*pitchin/180, Eigen::Vector3f::UnitY());
 
     return mat;
 
@@ -466,16 +466,16 @@ void runOdrive()
 
     //start servos on endEffector
     ServoAxis pitch(EXTPIN1,35, -15, 1510, -(1200.0)/120.0, 6.0);
-    ServoAxis yaw(EXTPIN2,60, -60, 1445, (1200.0)/120.0, 2.0);  
-//    while(1) {
-//        pitch.setAngle(30);
-//        yaw.setAngle(30);
-//        Thread::wait(300);
-//        pitch.setAngle(-30);
-//        yaw.setAngle(-30);
-//        Thread::wait(300);
-//        }
-        
+    ServoAxis yaw(EXTPIN2,60, -60, 1445, (1200.0)/120.0, 2.0);
+    //    while(1) {
+    //        pitch.setAngle(30);
+    //        yaw.setAngle(30);
+    //        Thread::wait(300);
+    //        pitch.setAngle(-30);
+    //        yaw.setAngle(-30);
+    //        Thread::wait(300);
+    //        }
+
     
     BufferedSerial ODSerial0(PC_12,PD_2);
     ODSerial0.baud(921600);
@@ -509,16 +509,16 @@ void runOdrive()
         Thread::wait(100);
     }
 
-        pitch.setAngle(0);
-            yaw.setAngle(0);
-//    kin.goIdle();//for some reason we need to do it multiple times!
-            int even = 1 ;
-            float t = 0;
+    pitch.setAngle(0);
+    yaw.setAngle(0);
+    //    kin.goIdle();//for some reason we need to do it multiple times!
+    int even = 1 ;
+    float t = 0;
     while(*B.homeSwitch_|| trigger) {
-       Thread::wait(10); 
-       // t+= 0.01;
-       //  pitch.setAngle(25.0*sin(t));
-       //  yaw.setAngle(25.0*cos(t));
+        Thread::wait(10);
+        // t+= 0.01;
+        //  pitch.setAngle(25.0*sin(t));
+        //  yaw.setAngle(25.0*cos(t));
 
         batteryV = OD1.readBattery();
     } // wait till user
@@ -533,42 +533,42 @@ void runOdrive()
 
 
     kin.goToAngles(0.5,0.5,0.5);
-     //    while( trigger) {
-     //   Thread::wait(100); 
+    //    while( trigger) {
+    //   Thread::wait(100);
 
-     //   batteryV = OD1.readBattery();
-     //   }
-     //   kin.goToPos(100,0,0);
-     //   Thread::wait(1000);
-     //           while( trigger) {
-     //   Thread::wait(100); 
+    //   batteryV = OD1.readBattery();
+    //   }
+    //   kin.goToPos(100,0,0);
+    //   Thread::wait(1000);
+    //           while( trigger) {
+    //   Thread::wait(100);
 
-     //   batteryV = OD1.readBattery();
-     //   }
-     //   kin.goToPos(150,0,0);
-     //   Thread::wait(1000);
-     //           while( trigger) {
-     //   Thread::wait(100); 
+    //   batteryV = OD1.readBattery();
+    //   }
+    //   kin.goToPos(150,0,0);
+    //   Thread::wait(1000);
+    //           while( trigger) {
+    //   Thread::wait(100);
 
-     //   batteryV = OD1.readBattery();
-     //   }
-     //   kin.goToPos(200,0,0);
-     //   Thread::wait(1000);
-     //          while( trigger) {
-     //   Thread::wait(100); 
+    //   batteryV = OD1.readBattery();
+    //   }
+    //   kin.goToPos(200,0,0);
+    //   Thread::wait(1000);
+    //          while( trigger) {
+    //   Thread::wait(100);
 
-     //   batteryV = OD1.readBattery();
-     //   }
-     //   kin.goToAngles(M_PI/8,M_PI/8,M_PI/8);
-     //   Thread::wait(1000);
-     //   while( trigger) {
-     //   Thread::wait(100); 
+    //   batteryV = OD1.readBattery();
+    //   }
+    //   kin.goToAngles(M_PI/8,M_PI/8,M_PI/8);
+    //   Thread::wait(1000);
+    //   while( trigger) {
+    //   Thread::wait(100);
 
-     //   batteryV = OD1.readBattery();
-     //   }
-     //   kin.goToAngles(M_PI/4,M_PI/4,M_PI/4);
-     //   Thread::wait(1000);
-     // while(1){}
+    //   batteryV = OD1.readBattery();
+    //   }
+    //   kin.goToAngles(M_PI/4,M_PI/4,M_PI/4);
+    //   Thread::wait(1000);
+    // while(1){}
     Thread::wait(500);
     error = 1;
     while(error > 0){
@@ -591,14 +591,14 @@ void runOdrive()
     float span = mid - min;
     float radius = 40;
     float envRad = 0.07;
- //   int loopCounter = 0;
+    //   int loopCounter = 0;
     //Eigen::Vector3f current(0,0,0);
     int end = 1;
-//    int needNewSeg = 0;
-//    float findHorizon = 0.8;
-//    int retID = -1;
-//    int wasCompleted = 0;
-//    int pathMode = sideToSide;
+    //    int needNewSeg = 0;
+    //    float findHorizon = 0.8;
+    //    int retID = -1;
+    //    int wasCompleted = 0;
+    //    int pathMode = sideToSide;
     rosTime rTimeNow = timeTracker.getTime();
     lTime lastTime(rTimeNow.seconds,rTimeNow.nSeconds);
     Eigen::Affine3f current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
@@ -612,7 +612,7 @@ void runOdrive()
             }
         }
         if(count>90) {
-             i += inc;
+            i += inc;
             if(up == 1)k+=0.2;
             else k-=0.2;
             if(k <= min) up = 0;
@@ -627,7 +627,7 @@ void runOdrive()
             //PM->setNotComplete();
             //PM->rebuildReset();
 
-           // current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
+            // current =  Eigen::Translation3f(0.385,0,0.03) * Eigen::AngleAxisf(0,Eigen::Vector3f(0,0,1));
             Thread::wait(1);
         }
         else{
@@ -649,7 +649,7 @@ void runOdrive()
                 motorCount++;
                 if(loopCounter % 1000 == 0){
                     Vector3f pos = eskfPTR->getPos();
-                    //buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] ); 
+                    //buffered_pc.printf(" position x y z %f %f %f\r\n",pos[0],pos[1],pos[2] );
                 }
 
                 Eigen::Affine3f here = Eigen::Translation3f(eskfPTR->getPos()) * eskfPTR->getQuat();
@@ -663,140 +663,140 @@ void runOdrive()
                 Eigen::Affine3f centreLocation = target.inverse()*here*centreOffsetInv;
                 Eigen::Quaternionf targetRotInv = targetRot.inverse();
 
-                // path finding section 
-        // path finding section
+                // path finding section
+                // path finding section
                 std::vector<octree::dataPtr> priorityList;
 
 
                 int end;
                 // path finding section
-               if(needNewSeg){
-                   //std::vector<std::pair<int,int> > IDList = PM->makeSeriesPrediction(current,here,target,findHorizon,envRad,15);
-                   if(wasCompleted){
-                       wasCompleted = 0;
-        //               retID = PM->getBestHint(retID,end);
-        //               cacheCount++;
-        //               if(retID == -1){
-        //                    cacheCount--;
-        //                    nonCacheCount++;
-        //                   retID = PM->getClosestPath(current,baseLocation,targetLocation,findHorizon*envRad,end);
-        //               }
-                   }
-                   //else{
-                   if(pathMode == closestSlow){
+                if(needNewSeg){
+                    //std::vector<std::pair<int,int> > IDList = PM->makeSeriesPrediction(current,here,target,findHorizon,envRad,15);
+                    if(wasCompleted){
+                        wasCompleted = 0;
+                        //               retID = PM->getBestHint(retID,end);
+                        //               cacheCount++;
+                        //               if(retID == -1){
+                        //                    cacheCount--;
+                        //                    nonCacheCount++;
+                        //                   retID = PM->getClosestPath(current,baseLocation,targetLocation,findHorizon*envRad,end);
+                        //               }
+                    }
+                    //else{
+                    if(pathMode == closestSlow){
                         retID = PM->getClosestPath(current,here,target,findHorizon*envRad,end);
-                   }
-                   else if(pathMode == octreeModeBiased){
+                    }
+                    else if(pathMode == octreeModeBiased){
                         retID = PM->getClosestPathBiased(current,here,target,findHorizon*envRad,end,true,0.5,priorityList);
-                   }
-                   else if(pathMode == sideToSide){
-                       int biasPointNum = 10;
-                       std::vector<Eigen::Vector3f> biasPoints(biasPointNum);
-                       for(int i = 0; i < biasPoints.size(); i++){
-                           Eigen::Vector3f thisOne(0,-1,0.5 - (float)i/ biasPoints.size());
-                           //Eigen::Vector3f thisOne(0,0,0);
-                           biasPoints[i] = thisOne;
-                       }
+                    }
+                    else if(pathMode == sideToSide){
+                        int biasPointNum = 10;
+                        std::vector<Eigen::Vector3f> biasPoints(biasPointNum);
+                        for(int i = 0; i < biasPoints.size(); i++){
+                            Eigen::Vector3f thisOne(0,-1,0.5 - (float)i/ biasPoints.size());
+                            //Eigen::Vector3f thisOne(0,0,0);
+                            biasPoints[i] = thisOne;
+                        }
                         retID = PM->getClosestPathBiasedWithGlobal(current,here,target,biasPoints,findHorizon*envRad,end,false,0, 1.0,priorityList);
-                   }
-                   else if(pathMode == octreeMode){
-                       retID = PM->getClosestPathFast(current,here,target,findHorizon*envRad,end,true,priorityList);
-                   }
-                   else if(pathMode == inOrder){
+                    }
+                    else if(pathMode == octreeMode){
+                        retID = PM->getClosestPathFast(current,here,target,findHorizon*envRad,end,true,priorityList);
+                    }
+                    else if(pathMode == inOrder){
                         static int currentPath  = 0;
                         if(PM->isComplete(currentPath)) currentPath++;
                         if(currentPath == PM->pathCount) currentPath = -1;
                         retID  = currentPath;
-                   }
-                   static int pastID = retID;
-                   if(pastID != retID){
-        //               pastID = retID;
-        //               heatMap = PM->getHeatMap(0.07,Eigen::Vector3f(0,0,0),Eigen::Vector3f(0,2,0),Eigen::Vector3f(0,0,1));
-        //               cv::imshow("window",1000*heatMap);
-        //               cv::waitKey(1);
-                   }
-
-                   //}
-                   if(retID == 174){
-                       std::cout << "here" << std::endl;
-                   }
-                   std::cout << "id" << retID << std::endl;
-                   if(!PM->isClose(retID,end,current,target,0.002)){
-                       if(end == 1){
-                           PM->setupTravel(current,PM->getStartPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
-                       }
-                       if(end == 2){
-                           PM->setupTravel(current,PM->getEndPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
-                       }
-                       end = 1;
-                       retID = -2;
-
-                   }
-                   else{
-                       //should take seg out of octree.
-                       if(octreeMode){
-                           if(retID >= 0){
-                               octree::dataPtr startPoint, endPoint;
-                               startPoint.data = retID;
-                               startPoint.point = PM->getStartEndPos(retID,1);
-                               endPoint.data = retID;
-                               endPoint.point = PM->getStartEndPos(retID,2);
-                               bool  val = PM->oct->remove(startPoint);
-                               if(val == false) std::cout << "remove error" << std::endl;
-                               val = PM->oct->remove(endPoint);
-                               if(val == false) std::cout << "remove error" << std::endl;
-                           }
-                       }
-                   }
-                   needNewSeg = 0;
-               }
-       //PM->constrainHead(current,here, envRad); //// should I be constraining the head.
-                      Eigen::Affine3f posTest;
-
-                   rosTime rNow = timeTracker.getTime();
-                    lTime nowTime(rNow.seconds,rNow.nSeconds);
-                    float dt = (nowTime - lastTime).toSec();
-                    lastTime = nowTime;
-                    if(dt > 0.01){
-                        buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
-                      dt = 0.01;  
-                    } 
-                    if(dt < 0.001){
-                        buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
-                        dt = 0.001;
                     }
-                    int isReach = PM->reachable(retID,current,target,here, envRad,posTest,end);
-                    if(!isReach){
-                        buffered_pc.printf(RED"cannot reach:%d \r\n"RESET, retID);
+                    static int pastID = retID;
+                    if(pastID != retID){
+                        //               pastID = retID;
+                        //               heatMap = PM->getHeatMap(0.07,Eigen::Vector3f(0,0,0),Eigen::Vector3f(0,2,0),Eigen::Vector3f(0,0,1));
+                        //               cv::imshow("window",1000*heatMap);
+                        //               cv::waitKey(1);
                     }
-       if(isReach && !PM->isComplete(retID)){
-           PM->stepTime(retID,dt,end);
-           current.translation() = PM->getPos(retID,end,target);
-       }
-       else{
-           if(PM->isComplete(retID)){
-            wasCompleted =1;
-            buffered_pc.printf(GRN"completed on end ID:%d\r\n"RESET, retID);
-           }
-           else{ // here is a problem.
-               if(retID >= 0){
-                   if(octreeMode){
-                   octree::dataPtr startPoint, endPoint;
-                   startPoint.data = retID;
-                   startPoint.point = PM->getStartEndPos(retID,1);
-                   endPoint.data = retID;
-                   endPoint.point = PM->getStartEndPos(retID,2);
-                   int  val = PM->oct->insert(startPoint);
-                   val = PM->oct->insert(endPoint);
-                   }
-               }
-           }
-           retID=-2;
-           needNewSeg = 1;
-           //should put the seg back into the octree.
-       }
 
-                // end of path finding section. 
+                    //}
+                    if(retID == 174){
+                        std::cout << "here" << std::endl;
+                    }
+                    std::cout << "id" << retID << std::endl;
+                    if(!PM->isClose(retID,end,current,target,0.002)){
+                        if(end == 1){
+                            PM->setupTravel(current,PM->getStartPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
+                        }
+                        if(end == 2){
+                            PM->setupTravel(current,PM->getEndPos(retID),target,PM->getNormal(retID),travelSpeedVal,retID,end);
+                        }
+                        end = 1;
+                        retID = -2;
+
+                    }
+                    else{
+                        //should take seg out of octree.
+                        if(octreeMode){
+                            if(retID >= 0){
+                                octree::dataPtr startPoint, endPoint;
+                                startPoint.data = retID;
+                                startPoint.point = PM->getStartEndPos(retID,1);
+                                endPoint.data = retID;
+                                endPoint.point = PM->getStartEndPos(retID,2);
+                                bool  val = PM->oct->remove(startPoint);
+                                if(val == false) std::cout << "remove error" << std::endl;
+                                val = PM->oct->remove(endPoint);
+                                if(val == false) std::cout << "remove error" << std::endl;
+                            }
+                        }
+                    }
+                    needNewSeg = 0;
+                }
+                //PM->constrainHead(current,here, envRad); //// should I be constraining the head.
+                Eigen::Affine3f posTest;
+
+                rosTime rNow = timeTracker.getTime();
+                lTime nowTime(rNow.seconds,rNow.nSeconds);
+                float dt = (nowTime - lastTime).toSec();
+                lastTime = nowTime;
+                if(dt > 0.01){
+                    buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
+                    dt = 0.01;
+                }
+                if(dt < 0.001){
+                    buffered_pc.printf(RED"DT:%f \r\n"RESET, dt);
+                    dt = 0.001;
+                }
+                int isReach = PM->thisEndReachable(retID,current,target,here, envRad,posTest,end);
+                if(!isReach){
+                    buffered_pc.printf(RED"cannot reach:%d \r\n"RESET, retID);
+                }
+                if(isReach && !PM->isComplete(retID)){
+                    PM->stepTime(retID,dt,end);
+                    current.translation() = PM->getPos(retID,end,target);
+                }
+                else{
+                    if(PM->isComplete(retID)){
+                        wasCompleted =1;
+                        buffered_pc.printf(GRN"completed on end ID:%d\r\n"RESET, retID);
+                    }
+                    else{ // here is a problem.
+                        if(retID >= 0){
+                            if(octreeMode){
+                                octree::dataPtr startPoint, endPoint;
+                                startPoint.data = retID;
+                                startPoint.point = PM->getStartEndPos(retID,1);
+                                endPoint.data = retID;
+                                endPoint.point = PM->getStartEndPos(retID,2);
+                                int  val = PM->oct->insert(startPoint);
+                                val = PM->oct->insert(endPoint);
+                            }
+                        }
+                    }
+                    retID=-2;
+                    needNewSeg = 1;
+                    //should put the seg back into the octree.
+                }
+
+                // end of path finding section.
                 // Eigen::Vector3f up;
                 // up << 0,1,0;
                 // Eigen::Vector3f side ;
@@ -814,7 +814,7 @@ void runOdrive()
 
                 target =  posTest;
                 if(loopCounter%1000 == 0){
-                   // buffered_pc.printf("here %f,%f,%f   target %f,%f,%f \r\n", here.translation()[0],here.translation()[1],here.translation()[2],target.translation()[0],target.translation()[1],target.translation()[2]);
+                    // buffered_pc.printf("here %f,%f,%f   target %f,%f,%f \r\n", here.translation()[0],here.translation()[1],here.translation()[2],target.translation()[0],target.translation()[1],target.translation()[2]);
                 }
                 if(loopCounter%50 == 0  || PM->isComplete(retID)){
 
@@ -836,7 +836,7 @@ void runOdrive()
                 //buffered_pc.printf(" hereQ w x y z %f %f %f %f\r\n",eskfPTR->getQuat().coeffs()[0],eskfPTR->getQuat().coeffs()[1],eskfPTR->getQuat().coeffs()[2],eskfPTR->getQuat().coeffs()[2]  );
                 float yawOut = 0;
                 float pitchOut = 0;
-                Eigen::Vector3f deltaPos; 
+                Eigen::Vector3f deltaPos;
                 Eigen::Affine3f outPos2;
                 int notReachable = 1;
                 if(movementActive) notReachable = kin.goToWorldPos(here,target, angRates, posTest,outPos2, ffGain, deltaPos, yawOut, pitchOut);
@@ -871,23 +871,23 @@ void runOdrive()
                     mail_box_headPosOut.put(mail2);
                     transmitterT.signal_set(0x1);
                 }
-            //     LocationIn retMsg;
-            //     LocationIn *mail = mail_box_locationIn.alloc();
-            //     mail->pos.x = posTest.translation()[0];
-            //     mail->pos.y = posTest.translation()[1];
-            //     mail->pos.z = posTest.translation()[2];
-            //     Eigen::Quaternionf quatLocationReturn;
-            //     quatLocationReturn= posTest.rotation();
-            //     mail->quat.x = quatLocationReturn.x();
-            //     mail->quat.y = quatLocationReturn.y();
-            //     mail->quat.z = quatLocationReturn.z();
-            //     mail->quat.w = quatLocationReturn.w();
-            //     mail->time = timeTracker.getTime();
-            //     mail->type = locationIn;
-                 
-            //     mail_box_locationIn.put(mail);
+                //     LocationIn retMsg;
+                //     LocationIn *mail = mail_box_locationIn.alloc();
+                //     mail->pos.x = posTest.translation()[0];
+                //     mail->pos.y = posTest.translation()[1];
+                //     mail->pos.z = posTest.translation()[2];
+                //     Eigen::Quaternionf quatLocationReturn;
+                //     quatLocationReturn= posTest.rotation();
+                //     mail->quat.x = quatLocationReturn.x();
+                //     mail->quat.y = quatLocationReturn.y();
+                //     mail->quat.z = quatLocationReturn.z();
+                //     mail->quat.w = quatLocationReturn.w();
+                //     mail->time = timeTracker.getTime();
+                //     mail->type = locationIn;
 
-            // transmitterT.signal_set(0x1);
+                //     mail_box_locationIn.put(mail);
+
+                // transmitterT.signal_set(0x1);
 
                 //newLocationReturnMsg = 1;
                 if (notReachable || retID == -2 || retID == -1) UVLed = 0;
@@ -910,12 +910,12 @@ void runOdrive()
 
 float detlaTimu = 0.001;
 void accelInterrupt(){
-            //newData = 1;
-            
-             //if(!accelPending){
-                timeMes = timeTracker.getTime();
-                 accelT.signal_set(0x1);
-             //}
+    //newData = 1;
+
+    //if(!accelPending){
+    timeMes = timeTracker.getTime();
+    accelT.signal_set(0x1);
+    //}
 
 }
 
@@ -937,7 +937,7 @@ void accelThread()
     uint32_t sumCount = 0;
     int dataCount = -1 ;
 
-    ImuData dataOut; 
+    ImuData dataOut;
 
     SocketAddress transmit(hubAddress.c_str(), BROADCAST_PORT_T);
     ImuDataChunk chunk;
@@ -949,56 +949,56 @@ void accelThread()
         //Thread::wait(200);
 
         //if(newData){
-            //newData = 0;
-            // imuDataBuffer.time.seconds = timeMes.seconds;
-            // imuDataBuffer.time.nSeconds = timeMes.nSeconds;
-            dataCount ++;
-            rosTime timeMesLocal = timeMes;
-            mpu.readAccelData(accelCount);  // Read the x/y/z adc values
-            mpu.getAres();
-            mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
-            mpu.getGres();
-            
+        //newData = 0;
+        // imuDataBuffer.time.seconds = timeMes.seconds;
+        // imuDataBuffer.time.nSeconds = timeMes.nSeconds;
+        dataCount ++;
+        rosTime timeMesLocal = timeMes;
+        mpu.readAccelData(accelCount);  // Read the x/y/z adc values
+        mpu.getAres();
+        mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
+        mpu.getGres();
 
 
-                        // Now we'll calculate the accleration value into actual g's
 
-            // imuDataBuffer.accel.x  = accel[0];  // get actual g value, this depends on scale being set
-            // imuDataBuffer.accel.y = accel[1];
-            // imuDataBuffer.accel.z = accel[2];
+        // Now we'll calculate the accleration value into actual g's
 
-            // imuDataBuffer.gyro.x = gyro[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
-            // imuDataBuffer.gyro.y = gyro[1]; // - gyroBias[1];
-            // imuDataBuffer.gyro.z = gyro[2]; // - gyroBias[2];
+        // imuDataBuffer.accel.x  = accel[0];  // get actual g value, this depends on scale being set
+        // imuDataBuffer.accel.y = accel[1];
+        // imuDataBuffer.accel.z = accel[2];
 
-            // imuDataBuffer.type = imuData;
-            //int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
-            // chunk.array[dataCount] = imuDataBuffer;
-            // if(dataCount == 19){
-            //     dataCount = 0;
-            //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
-            // }
-            //imuToSend = 1;
-            detlaTimu = timeTracker.difference(lastIMUTime, timeMesLocal);
-            lastIMUTime = timeMesLocal;
-            if(detlaTimu != 0.0){
-                if(!mail_box.full()){
-                    imuMail *mail = mail_box.alloc();
-                    mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
+        // imuDataBuffer.gyro.x = gyro[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+        // imuDataBuffer.gyro.y = gyro[1]; // - gyroBias[1];
+        // imuDataBuffer.gyro.z = gyro[2]; // - gyroBias[2];
 
-                    mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+        // imuDataBuffer.type = imuData;
+        //int ret = socket.sendto(transmit, &imuDataBuffer, sizeof(imuDataBuffer));
+        // chunk.array[dataCount] = imuDataBuffer;
+        // if(dataCount == 19){
+        //     dataCount = 0;
+        //     int ret = socket.sendto(transmit, &chunk, sizeof(chunk));
+        // }
+        //imuToSend = 1;
+        detlaTimu = timeTracker.difference(lastIMUTime, timeMesLocal);
+        lastIMUTime = timeMesLocal;
+        if(detlaTimu != 0.0){
+            if(!mail_box.full()){
+                imuMail *mail = mail_box.alloc();
+                mail->accel <<  (float)accelCount[0]*aRes,(float)accelCount[1]*aRes,(float)accelCount[2]*aRes;
 
-                    mail->stamp = timeMesLocal;
-                    mail_box.put(mail);
-                    ESKFT.signal_set(0x1);
-                }
+                mail->gyro <<(float)gyroCount[0]*gRes,(float)gyroCount[1]*gRes,(float)gyroCount[2]*gRes;
+
+                mail->stamp = timeMesLocal;
+                mail_box.put(mail);
+                ESKFT.signal_set(0x1);
             }
-            // if(dataCount % 2000 ==0){
-            //     float fps = 1000000 * dataCount / debugT.read_us();
-            //     buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fframesPerS\r\n",accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2],timeMes.seconds,timeMes.nSeconds, fps);
-            //     dataCount = 0;
-            //     debugT.reset();
-            // }
+        }
+        // if(dataCount % 2000 ==0){
+        //     float fps = 1000000 * dataCount / debugT.read_us();
+        //     buffered_pc.printf("Ax:%f \t Ay:%f\t Az:%f\t Gx:%f\t Gy:%f\t Gz:%f\t at time %d\ts %d\tns %fframesPerS\r\n",accel[0],accel[1],accel[2],gyro[0],gyro[1],gyro[2],timeMes.seconds,timeMes.nSeconds, fps);
+        //     dataCount = 0;
+        //     debugT.reset();
+        // }
         //}
         //Thread::yield();
         accelPending = 0;
@@ -1026,8 +1026,8 @@ int lastMocapT = 0;
 int lastIMUT = 0;
 void ESKFThread(){
 
-    //set up the ESKF as per the desktop example. 
-        float sigma_accel = 0.0124; // [m/s^2]  (value derived from Noise Spectral Density in datasheet)
+    //set up the ESKF as per the desktop example.
+    float sigma_accel = 0.0124; // [m/s^2]  (value derived from Noise Spectral Density in datasheet)
     float sigma_gyro = 0.00276; // [rad/s] (value derived from Noise Spectral Density in datasheet)
     float sigma_accel_drift = 0.001f*sigma_accel; // [m/s^2 sqrt(s)] (Educated guess, real value to be measured)
     float sigma_gyro_drift = 0.001f*sigma_gyro; // [rad/s sqrt(s)] (Educated guess, real value to be measured)
@@ -1041,26 +1041,26 @@ void ESKFThread(){
     float sigma_mocap_pos = 0.0003; // [m]
     float sigma_mocap_rot = 0.003; // [rad]
     eskfPTR = new ESKF(
-            Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
-            ESKF::makeState(
-                Vector3f(0, 0, 1), // init pos
-                Vector3f(0, 0, 0), // init vel
-                Quaternionf(AngleAxisf(0.0f, Vector3f(0, 0, 1))), // init quaternion
+                Vector3f(0, 0, -GRAVITY), // Acceleration due to gravity in global frame
+                ESKF::makeState(
+                    Vector3f(0, 0, 1), // init pos
+                    Vector3f(0, 0, 0), // init vel
+                    Quaternionf(AngleAxisf(0.0f, Vector3f(0, 0, 1))), // init quaternion
                     Vector3f(-1.26, -1.09, -1.977), // init accel bias
                     Vector3f(0.114, -0.01, 0) // init gyro bias
-            ),
-            ESKF::makeP(
-                SQ(sigma_init_pos) * I_3,
-                SQ(sigma_init_vel) * I_3,
-                SQ(sigma_init_dtheta) * I_3,
-                SQ(sigma_init_accel_bias) * I_3,
-                SQ(sigma_init_gyro_bias) * I_3
-            ),
-            SQ(sigma_accel),
-            SQ(sigma_gyro),
-            SQ(sigma_accel_drift),
-            SQ(sigma_gyro_drift),
-            ESKF::delayTypes::applyUpdateToNew,100);
+                    ),
+                ESKF::makeP(
+                    SQ(sigma_init_pos) * I_3,
+                    SQ(sigma_init_vel) * I_3,
+                    SQ(sigma_init_dtheta) * I_3,
+                    SQ(sigma_init_accel_bias) * I_3,
+                    SQ(sigma_init_gyro_bias) * I_3
+                    ),
+                SQ(sigma_accel),
+                SQ(sigma_gyro),
+                SQ(sigma_accel_drift),
+                SQ(sigma_gyro_drift),
+                ESKF::delayTypes::applyUpdateToNew,100);
 
     //loop waiting for data to come in
     int imuCount = 0;
@@ -1070,11 +1070,11 @@ void ESKFThread(){
     AngleAxisf xRot(0*degToRad,Eigen::Vector3f(1,0,0));
     AngleAxisf zRot(0*degToRad,Eigen::Vector3f(0,0,1));
     AngleAxisf yRot(-1.5*degToRad,Eigen::Vector3f(0,0,1));
-        //rotation mat for the accel, to correct for mounting, result should be ros convention. 
+    //rotation mat for the accel, to correct for mounting, result should be ros convention.
     Eigen::Matrix<float, 3,3> rotMat;
     rotMat <<   -1, 0, 0
-                ,0, 0,-1
-                ,0,-1, 0;
+            ,0, 0,-1
+            ,0,-1, 0;
     rotMat = rotMat;//          *xRot*zRot*yRot;
 
 
@@ -1099,11 +1099,11 @@ void ESKFThread(){
                 lTime now(nowRos.seconds,nowRos.nSeconds);
                 float confidence  = mailIn->confidence;
                 if(!(fabs(quat.x()) < 0.00001 || fabs(quat.y()) < 0.00001 ||fabs(quat.z()) < 0.00001 || stamp.sec == 0 || stamp.nsec == 0)){
-//                    if(!mail_box_mocapOut.full()){
-//                        LocationIn* mail = mail_box_mocapOut.alloc();
-//                        *mail = locationReturnMsg;
-//                        mail_box_mocapOut.put(mail);
-//                    }
+                    //                    if(!mail_box_mocapOut.full()){
+                    //                        LocationIn* mail = mail_box_mocapOut.alloc();
+                    //                        *mail = locationReturnMsg;
+                    //                        mail_box_mocapOut.put(mail);
+                    //                    }
 
                     eskfPTR->measurePos(pos,confidence * SQ(sigma_mocap_pos)*I_3,stamp,now);
                     Thread::yield();
@@ -1121,58 +1121,58 @@ void ESKFThread(){
         }
 
         
-            
+
         while(!mail_box.empty()){
             osEvent evt = mail_box.get();
             if(evt.status == osEventMail){
-            imuMail *mail = (imuMail*)evt.value.p;
-            imuToSend = 0;
-                        
+                imuMail *mail = (imuMail*)evt.value.p;
+                imuToSend = 0;
 
-            Vector3f accelLocal = GRAVITY * rotMat * mail->accel;
-            
-            Vector3f gyroLocal = degToRad * rotMat * mail->gyro;
 
-            rosTime timeLocal = mail->stamp;
-            lTime stamp(timeLocal.seconds,timeLocal.nSeconds);
-            rosTime nowRos = timeTracker.getTime();
-            lTime now(nowRos.seconds,nowRos.nSeconds);
-            mail_box.free(mail);
-            static lTime lastStamp(0,0);
-            lTime duration = stamp - lastStamp;
-            if(duration.toSec() > 1.0) duration.fromSec(0.001);
-            if(duration.toSec() == 0.0) duration.fromSec(0.001);
+                Vector3f accelLocal = GRAVITY * rotMat * mail->accel;
 
-            eskfPTR->predictIMU(accelLocal,gyroLocal,duration.toSec(),stamp);
-            estimateCount++;
+                Vector3f gyroLocal = degToRad * rotMat * mail->gyro;
 
-            updatedESKF = 1;
-            odriveThread.signal_set(0x1);
-                        imuCount ++;
-                        if(imuCount %50 == 0){
-                            if(!mail_box_transmit_imu.full()){
-                                ImuData *mail = mail_box_transmit_imu.alloc();
-                                mail->type = imuData;
-                                mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set
-                                mail->accel.y = accelLocal[1];
-                                mail->accel.z = accelLocal[2];
+                rosTime timeLocal = mail->stamp;
+                lTime stamp(timeLocal.seconds,timeLocal.nSeconds);
+                rosTime nowRos = timeTracker.getTime();
+                lTime now(nowRos.seconds,nowRos.nSeconds);
+                mail_box.free(mail);
+                static lTime lastStamp(0,0);
+                lTime duration = stamp - lastStamp;
+                if(duration.toSec() > 1.0) duration.fromSec(0.001);
+                if(duration.toSec() == 0.0) duration.fromSec(0.001);
 
-                                mail->gyro.x = gyroLocal[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
-                                mail->gyro.y = gyroLocal[1]; // - gyroBias[1];
-                                mail->gyro.z = gyroLocal[2]; // - gyroBias[2];
-                                mail->time = timeLocal;
-                                mail_box_transmit_imu.put(mail);
-                                imuToSend = 1;
-                                transmitterT.signal_set(0x1);
-                            }
-                        }
-            // if(imuCount == 2000){
-            //     float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
-            //     buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
-            //     imuCount = 0;
-            //     lastIMUT = debugTimer.read_us();
-            // }
-            Thread::yield();
+                eskfPTR->predictIMU(accelLocal,gyroLocal,duration.toSec(),stamp);
+                estimateCount++;
+
+                updatedESKF = 1;
+                odriveThread.signal_set(0x1);
+                imuCount ++;
+                if(imuCount %50 == 0){
+                    if(!mail_box_transmit_imu.full()){
+                        ImuData *mail = mail_box_transmit_imu.alloc();
+                        mail->type = imuData;
+                        mail->accel.x  = accelLocal[0];  // get actual g value, this depends on scale being set
+                        mail->accel.y = accelLocal[1];
+                        mail->accel.z = accelLocal[2];
+
+                        mail->gyro.x = gyroLocal[0]; // - gyroBias[0];  // get actual gyro value, this depends on scale being set
+                        mail->gyro.y = gyroLocal[1]; // - gyroBias[1];
+                        mail->gyro.z = gyroLocal[2]; // - gyroBias[2];
+                        mail->time = timeLocal;
+                        mail_box_transmit_imu.put(mail);
+                        imuToSend = 1;
+                        transmitterT.signal_set(0x1);
+                    }
+                }
+                // if(imuCount == 2000){
+                //     float fps = 1000000 * imuCount / (debugTimer.read_us() - lastIMUT);
+                //     buffered_pc.printf("imuFPS %fframesPerS  delta time %f\r\n",fps, detlaTimu);
+                //     imuCount = 0;
+                //     lastIMUT = debugTimer.read_us();
+                // }
+                Thread::yield();
             }
         }
         //Thread::yield();
@@ -1185,20 +1185,20 @@ void ESKFThread(){
 
 void performance(){
     while(1){
-    rosTime rT = timeTracker.getTime();
-    lTime nowT(rT.seconds,rT.nSeconds);
-    lTime dT = nowT - lastPerformanceT;
-    lastPerformanceT = nowT;
-    if(batteryV < 19){
-        buffered_pc.printf(RED"performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n"RESET,imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
+        rosTime rT = timeTracker.getTime();
+        lTime nowT(rT.seconds,rT.nSeconds);
+        lTime dT = nowT - lastPerformanceT;
+        lastPerformanceT = nowT;
+        if(batteryV < 19){
+            buffered_pc.printf(RED"performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n"RESET,imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
+        }
+        //buffered_pc.printf("performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n",imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
+        imuCount = 0;
+        updateCount = 0;
+        estimateCount = 0;
+        motorCount = 0;
+        Thread::wait(10000);
     }
-    //buffered_pc.printf("performance: Accel:%fHz\t Mocap: %fHz\t  Update %fHz\t  Motors%fHz\t  Battery %fV \r\n",imuCount/dT.toSec(),updateCount/dT.toSec(), estimateCount/dT.toSec(), motorCount/dT.toSec(),batteryV );
-    imuCount = 0;
-    updateCount = 0;
-    estimateCount = 0; 
-    motorCount = 0;
-    Thread::wait(10000);
-}
 }
 
 
@@ -1207,7 +1207,7 @@ void performance(){
 int main()
 {
     debugTimer.start();
-    // testing eigen run time. 
+    // testing eigen run time.
     buffered_pc.baud(115200);
     buffered_pc.printf(GRN"hello\r\n"RESET);
     UVLed = 1;
@@ -1252,7 +1252,7 @@ int main()
     UVLed = 0;
     
     accelT.start(accelThread);
-   // printBattery.start(batteryThread);
+    // printBattery.start(batteryThread);
     performanceThread.start(performance);
 
     while (true) {
